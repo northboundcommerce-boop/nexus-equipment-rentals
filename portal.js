@@ -89,8 +89,8 @@ async function loadCustomer(){
        <span class="client-rental-dates">${esc(x.start_date||'')} → ${esc(x.end_date||'')}</span>
        <span class="status">${esc((x.status||'pending').replaceAll('_',' '))}</span>
        ${action}
+       ${cancellable?`<button class="cancel-reservation-btn" onclick="openCancelReservation('${x.id}','${esc(x.equipment?.name||'Equipment')}','${esc(x.start_date||'')}','${esc(x.end_date||'')}')">Cancel Reservation</button>`:`${x.status==='active'?'<small class="contact-nexus-note">Equipment is active. Contact Nexus if you need assistance.</small>':''}`}
      </div>
-     ${cancellable?`<button class="client-cancel-x" onclick="cancelMyRental('${x.id}','${esc(x.equipment?.name||'Equipment')}')" title="Cancel this rental request" aria-label="Cancel rental request">×</button>`:''}
    </div>`;
  }).join(''):'<div class="customer-empty-state">No rental requests yet.</div>';
 }
@@ -123,6 +123,49 @@ function renderCustomerApprovalTracker(status){
    <p class="tracker-copy">${normalized==='approved'?'You can request available equipment and manage your rentals below.':normalized==='rejected'?'Your account was not approved. Contact Nexus if you believe additional information should be reviewed.':normalized==='more_info'?'Nexus needs additional information before your account can be approved. Review the verification section below.':'Nexus is reviewing your account. You can track the decision here.'}</p>
  </div>`;
 }
+
+window.openCancelReservation=(id,name,start,end)=>{
+ let modal=document.getElementById('cancelReservationModal');
+ if(!modal){modal=document.createElement('div');modal.id='cancelReservationModal';document.body.appendChild(modal)}
+ modal.className='cancel-reservation-modal';
+ modal.innerHTML=`<div class="cancel-reservation-card">
+   <button class="cancel-modal-close" onclick="document.getElementById('cancelReservationModal').remove()">×</button>
+   <p class="nexus-kicker">NEXUS EQUIPMENT RENTALS</p>
+   <h2>Cancel Reservation?</h2>
+   <p class="muted">Please confirm that you want to cancel this reservation.</p>
+   <div class="cancel-summary">
+     <div><span>Equipment</span><b>${esc(name)}</b></div>
+     <div><span>Dates</span><b>${esc(start)} → ${esc(end)}</b></div>
+   </div>
+   <label>Reason for cancellation <span class="optional">(optional)</span>
+     <textarea id="cancelReservationReason" rows="4" placeholder="Tell Nexus why you're cancelling..."></textarea>
+   </label>
+   <div class="cancel-modal-actions">
+     <button class="cancel-confirm-btn" onclick="confirmCancelReservation('${id}')">Yes, Cancel Reservation</button>
+     <button class="cancel-keep-btn" onclick="document.getElementById('cancelReservationModal').remove()">Keep Reservation</button>
+   </div>
+ </div>`;
+};
+
+window.confirmCancelReservation=async id=>{
+ const reason=$('#cancelReservationReason')?.value.trim()||null;
+ const {data:{user}}=await db.auth.getUser();
+ const {data:r,error:readError}=await db.from('rental_requests').select('id,status,customer_id,customer_notes').eq('id',id).eq('customer_id',user.id).maybeSingle();
+ if(readError)return msg(readError.message);
+ if(!r)return msg('Reservation not found.');
+ if(!['pending','contract_required','confirmed'].includes(r.status))return msg('This reservation can no longer be cancelled online. Please contact Nexus.');
+ const existing=(r.customer_notes||'').trim();
+ const cancellationNote=reason?`Cancellation reason: ${reason}`:'Cancelled by customer';
+ const {error}=await db.from('rental_requests').update({
+   status:'cancelled',
+   customer_notes:[existing,cancellationNote].filter(Boolean).join('\n')
+ }).eq('id',id).eq('customer_id',user.id);
+ if(error)return msg(error.message);
+ document.getElementById('cancelReservationModal')?.remove();
+ msg('Your reservation has been cancelled. The dates are available again.');
+ await loadCustomer();
+};
+
 async function loadCustomerEquipment(approved){
  const {data}=await db.from('equipment').select('*').neq('status','inactive').order('created_at',{ascending:false});
  $('#customerEquipment').innerHTML=data?.length?data.map(x=>eqCard(x,false,approved)).join(''):'<div class="equipment-item">No equipment added yet.</div>'
@@ -528,6 +571,17 @@ boot();
  #customerApprovalTracker{margin:16px 0 24px}.approval-tracker{padding:22px;border:1px solid #2c2c32;border-radius:12px;background:linear-gradient(145deg,#111114,#09090b)}.approval-tracker-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}.approval-tracker-head h3{margin:5px 0 0}.tracker-kicker{font-size:10px;font-weight:900;letter-spacing:.15em;color:#ed1c24}.tracker-status{padding:7px 10px;border:1px solid #5f272b;border-radius:999px;color:#ff6b72;font-size:10px;font-weight:900;letter-spacing:.08em}.tracker-line{position:relative;display:grid;grid-template-columns:repeat(3,1fr);margin:25px 0 14px}.tracker-line:before{content:"";position:absolute;top:15px;left:16.5%;right:16.5%;height:2px;background:#2e2e34}.tracker-step{position:relative;z-index:1;text-align:center;color:#777}.tracker-dot{display:grid;place-items:center;width:30px;height:30px;margin:0 auto 8px;border:2px solid #3b3b42;border-radius:50%;background:#111114;color:#777;font-size:11px;font-weight:900}.tracker-step.done{color:#ddd}.tracker-step.done .tracker-dot{border-color:#ed1c24;background:#ed1c24;color:#fff}.tracker-step.rejected .tracker-dot{background:#7d171d;border-color:#ff4c55}.tracker-step.attention .tracker-dot{background:#7b5314;border-color:#d89b32}.tracker-step b{font-size:11px}.tracker-copy{margin:0;color:#999;line-height:1.5}
  .client-rental-row{position:relative!important;display:flex!important;justify-content:space-between!important;align-items:flex-start!important;gap:16px!important;padding:16px 18px!important}.client-rental-info{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-width:0}.client-rental-dates{color:#aaa;font-size:13px}.client-cancel-x{display:grid!important;place-items:center!important;flex:0 0 36px!important;width:36px!important;height:36px!important;min-width:36px!important;padding:0!important;margin:0!important;border:1px solid #8b2b31!important;border-radius:8px!important;background:#281013!important;color:#ff666e!important;font-size:25px!important;line-height:1!important;font-weight:500!important;cursor:pointer!important;visibility:visible!important;opacity:1!important}.client-cancel-x:hover{background:#ed1c24!important;color:#fff!important;border-color:#ed1c24!important}.customer-empty-state{padding:18px;border:1px dashed #333;border-radius:9px;color:#777}
  @media(max-width:620px){.approval-tracker-head{flex-direction:column}.tracker-step b{font-size:9px}.client-rental-row{padding:14px!important}}
+ `;
+ document.head.appendChild(s);
+})();
+
+(function addCancelReservationStyles(){
+ if(document.getElementById('nexusCancelReservationStyles'))return;
+ const s=document.createElement('style');s.id='nexusCancelReservationStyles';
+ s.textContent=`
+ .cancel-reservation-btn{margin-top:10px;padding:9px 13px;border:1px solid #702a2f;border-radius:7px;background:transparent;color:#ff6b72;font-size:11px;font-weight:900;letter-spacing:.04em;cursor:pointer}.cancel-reservation-btn:hover{background:#281013;border-color:#ed1c24;color:#fff}
+ .contact-nexus-note{display:block;margin-top:9px;color:#999}.cancel-reservation-modal{position:fixed;inset:0;z-index:100200;background:rgba(0,0,0,.9);display:flex;align-items:center;justify-content:center;padding:20px}.cancel-reservation-card{position:relative;width:min(590px,100%);padding:30px;background:#0d0d10;border:1px solid #303038;border-radius:14px;color:#fff;box-shadow:0 30px 100px #000}.cancel-modal-close{position:absolute;right:18px;top:12px;background:none;border:0;color:#fff;font-size:34px;cursor:pointer}.cancel-reservation-card h2{margin:6px 0}.cancel-summary{margin:20px 0;padding:15px;border:1px solid #2b2b31;border-radius:9px;background:#09090b}.cancel-summary div{display:flex;justify-content:space-between;gap:20px;padding:7px 0}.cancel-summary span{color:#888}.cancel-reservation-card label{display:block;color:#ddd;font-size:12px;font-weight:800}.optional{color:#777;font-weight:400}.cancel-reservation-card textarea{display:block;width:100%;box-sizing:border-box;margin-top:8px;padding:12px;border:1px solid #383840;border-radius:7px;background:#070709;color:#fff;resize:vertical;font:inherit}.cancel-modal-actions{display:flex;gap:10px;margin-top:18px}.cancel-confirm-btn,.cancel-keep-btn{flex:1;padding:12px;border-radius:7px;font-weight:900;cursor:pointer}.cancel-confirm-btn{border:1px solid #ed1c24;background:#ed1c24;color:#fff}.cancel-keep-btn{border:1px solid #3a3a42;background:#151519;color:#fff}
+ @media(max-width:560px){.cancel-modal-actions{flex-direction:column}.cancel-reservation-card{padding:25px 15px}}
  `;
  document.head.appendChild(s);
 })();
