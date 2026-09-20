@@ -1247,14 +1247,18 @@ window.openPaymentRequest=async(customerId,rentalId='')=>{
 };
 async function loadAdminPaymentRequests(){
  let mount=document.getElementById('adminPaymentRequests');
- if(!mount){
-  mount=document.createElement('section');mount.id='adminPaymentRequests';mount.className='nexus-payments-card';
-  const admin=document.getElementById('adminView');admin?.appendChild(mount);
- }
+ if(!mount){mount=document.createElement('section');mount.id='adminPaymentRequests';mount.className='nexus-payments-card';document.getElementById('adminView')?.appendChild(mount)}
  const {data:rows,error}=await db.from('payment_requests').select('*').order('created_at',{ascending:false}).limit(100);
  if(error){mount.innerHTML='';return}
- mount.innerHTML=`<span class="payment-kicker">PAYMENT ACTIVITY</span><h2>Payment Requests</h2>${rows?.length?rows.map(x=>{const c=adminCustomers.find(c=>c.id===x.customer_id);return `<div class="payment-row"><div><b>${esc(c?.full_name||c?.email||'Customer')}</b><small>${esc(x.title)}</small></div><div class="payment-amount">${money(x.amount)}</div><span class="status">${esc(x.status)}</span></div>`}).join(''):'<p class="muted">No payment requests yet.</p>'}`;
+ const unread=(rows||[]).filter(x=>x.status==='paid'&&!x.admin_seen_at);
+ mount.innerHTML=`<div class="payment-head"><div><span class="payment-kicker">PAYMENT ACTIVITY</span><h2>Payment Requests ${unread.length?`<span class="payment-badge">${unread.length} NEW</span>`:''}</h2></div>${unread.length?`<button class="small-btn" onclick="markPaymentsSeen()">Mark payments seen</button>`:''}</div>
+ ${unread.map(x=>{const c=adminCustomers.find(c=>c.id===x.customer_id);return `<div class="payment-received-alert"><b>✓ PAYMENT RECEIVED — ${money(x.amount)}</b><span>${esc(c?.full_name||c?.email||'Customer')} • ${esc(x.title)} • ${x.paid_at?new Date(x.paid_at).toLocaleString():''}</span></div>`}).join('')}
+ ${rows?.length?rows.map(x=>{const c=adminCustomers.find(c=>c.id===x.customer_id);return `<div class="payment-row"><div><b>${esc(c?.full_name||c?.email||'Customer')}</b><small>${esc(x.title)}</small>${x.paid_at?`<small>Paid ${new Date(x.paid_at).toLocaleString()}</small>`:''}</div><div class="payment-amount">${money(x.amount)}</div><span class="status ${x.status==='paid'?'paid-status':''}">${esc(x.status)}</span></div>`}).join(''):'<p class="muted">No payment requests yet.</p>'}`;
 }
+window.markPaymentsSeen=async()=>{
+ const {error}=await db.from('payment_requests').update({admin_seen_at:new Date().toISOString()}).eq('status','paid').is('admin_seen_at',null);
+ if(error)return msg(error.message);loadAdminPaymentRequests();
+};
 document.addEventListener('click',e=>{
  const b=e.target.closest('[onclick*="openCustomerProfile"]');if(!b)return;
  setTimeout(()=>{
@@ -1288,3 +1292,5 @@ document.addEventListener('click',e=>{
  };
 })();
 (function(){const st=document.createElement('style');st.textContent=`.profile-payment-action{display:flex;align-items:center;justify-content:space-between;gap:18px;margin:22px 0 4px;padding:17px;border:1px solid #4a2529;border-radius:9px;background:linear-gradient(135deg,#160d0f,#0c0c0f)}.profile-payment-action h3{margin:4px 0}.profile-payment-action p{margin:0;color:#8e8e96;font-size:12px}@media(max-width:600px){.profile-payment-action{align-items:stretch;flex-direction:column}.profile-payment-action button{width:100%}}`;document.head.appendChild(st)})();
+
+(function(){const st=document.createElement('style');st.textContent=`.payment-head{display:flex;align-items:center;justify-content:space-between;gap:15px}.payment-badge{display:inline-block;background:#ef202c;color:#fff;font-size:9px;vertical-align:middle;padding:5px 8px;border-radius:999px;margin-left:8px}.payment-received-alert{display:flex;justify-content:space-between;gap:15px;padding:14px 16px;margin:10px 0;border:1px solid #28663b;background:#0c2113;border-radius:8px}.payment-received-alert b{color:#65df89}.payment-received-alert span{color:#b9c7bd;font-size:12px}.paid-status{border-color:#28663b!important;color:#65df89!important}@media(max-width:650px){.payment-head,.payment-received-alert{align-items:stretch;flex-direction:column}}`;document.head.appendChild(st)})();
