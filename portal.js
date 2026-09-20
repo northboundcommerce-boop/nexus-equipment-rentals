@@ -63,7 +63,7 @@ async function loadCustomerEquipment(approved){
  $('#customerEquipment').innerHTML=data?.length?data.map(x=>eqCard(x,false,approved)).join(''):'<div class="equipment-item">No equipment added yet.</div>'
 }
 function eqCard(x,admin=false,approved=false){
- return `<div class="equipment-item">${x.image_url?`<img src="${esc(x.image_url)}" alt="" class="eq-img">`:''}<span class="status">${esc(x.status)}</span><h3>${esc(x.name)}</h3><p class="muted">${esc(x.category||'Equipment')}</p><p>${esc(x.description||'')}</p><div class="rate-row"><b>${money(x.daily_rate)}/day</b><span>${money(x.weekly_rate)}/week</span></div>${admin?`<div class="admin-actions"><button class="small-btn" onclick="editEq('${x.id}')">Edit</button><button class="small-btn" onclick="setEq('${x.id}','available')">Available</button><button class="small-btn" onclick="setEq('${x.id}','maintenance')">Maintenance</button><button class="small-btn red" onclick="removeEq('${x.id}')">Remove</button></div>`:(approved&&x.status==='available'?`<button class="small-btn red" onclick="requestRental('${x.id}','${esc(x.name)}')">Request Rental</button>`:'')}</div>`
+ return `<div class="equipment-item">${x.image_url?`<img src="${esc(x.image_url)}" alt="" class="eq-img">`:''}<span class="status">${esc(x.status)}</span><h3>${esc(x.name)}</h3><p class="muted">${esc(x.category||'Equipment')}</p><p>${esc(x.description||'')}</p><div class="rate-row"><b>${money(x.daily_rate)}/day</b><span>${money(x.weekly_rate)}/week</span></div>${admin?`<div class="admin-actions"><button class="small-btn" onclick="editEq('${x.id}')">Edit</button><button class="small-btn" onclick="manageEqPhotos('${x.id}')">Photos</button><button class="small-btn" onclick="setEq('${x.id}','available')">Available</button><button class="small-btn" onclick="setEq('${x.id}','maintenance')">Maintenance</button><button class="small-btn red" onclick="removeEq('${x.id}')">Remove</button></div>`:(approved&&x.status==='available'?`<button class="small-btn red" onclick="requestRental('${x.id}','${esc(x.name)}')">Request Rental</button>`:'')}</div>`
 }
 window.requestRental=async(id,name)=>{const start=prompt(`Start date for ${name} (YYYY-MM-DD)`);if(!start)return;const end=prompt('End date (YYYY-MM-DD)');if(!end)return;const {data:{user}}=await db.auth.getUser();const {error}=await db.from('rental_requests').insert({customer_id:user.id,equipment_id:id,start_date:start,end_date:end});msg(error?error.message:'Rental request submitted to Nexus.');loadCustomer()};
 
@@ -114,7 +114,50 @@ function renderEquipment(){
 window.setEq=async(id,status)=>{const {error}=await db.from('equipment').update({status,available:status==='available'}).eq('id',id);if(error)return msg(error.message);loadAdmin()};
 window.removeEq=async id=>{if(confirm('Remove this equipment?')){const {error}=await db.from('equipment').delete().eq('id',id);if(error)return msg(error.message);loadAdmin()}};
 window.editEq=async id=>{const x=adminEquipment.find(e=>e.id===id);if(!x)return;const name=prompt('Equipment name',x.name);if(name===null)return;const daily=prompt('Daily rate',x.daily_rate??'');if(daily===null)return;const weekly=prompt('Weekly rate',x.weekly_rate??'');if(weekly===null)return;const deposit=prompt('Deposit',x.deposit??'');if(deposit===null)return;const {error}=await db.from('equipment').update({name,daily_rate:daily||null,weekly_rate:weekly||null,deposit:deposit||null}).eq('id',id);if(error)return msg(error.message);msg('Equipment updated.');loadAdmin()};
-$('#equipmentForm').onsubmit=async e=>{e.preventDefault();const row={name:$('#eqName').value,category:$('#eqCategory').value,description:$('#eqDescription').value,image_url:$('#eqImage').value||null,daily_rate:$('#eqDaily').value||null,weekly_rate:$('#eqWeekly').value||null,deposit:$('#eqDeposit').value||null};const {error}=await db.from('equipment').insert(row);if(error)return msg(error.message);e.target.reset();msg('Equipment added.');loadAdmin()};
+let selectedEquipmentFiles=[];
+const eqImagesInput=$('#eqImages');
+if(eqImagesInput){
+ eqImagesInput.onchange=e=>{
+   selectedEquipmentFiles=[...e.target.files].slice(0,8);
+   $('#eqImagePreview').innerHTML=selectedEquipmentFiles.map((f,i)=>`<div class="eq-preview-item"><img src="${URL.createObjectURL(f)}" alt=""><span>${i===0?'COVER':'PHOTO '+(i+1)}</span></div>`).join('');
+ };
+}
+async function uploadEquipmentPhotos(equipmentId,files){
+ const urls=[];
+ for(let i=0;i<files.length;i++){
+   const file=files[i];
+   if(file.size>10*1024*1024) throw new Error(`${file.name} is larger than 10 MB.`);
+   const ext=(file.name.split('.').pop()||'jpg').toLowerCase();
+   const path=`${equipmentId}/${Date.now()}-${i}.${ext}`;
+   const {error}=await db.storage.from('equipment-images').upload(path,file,{contentType:file.type,upsert:false});
+   if(error) throw error;
+   const {data}=db.storage.from('equipment-images').getPublicUrl(path);
+   urls.push({equipment_id:equipmentId,storage_path:path,public_url:data.publicUrl,sort_order:i,is_cover:i===0});
+ }
+ if(urls.length){
+   const {error}=await db.from('equipment_images').insert(urls);
+   if(error) throw error;
+   await db.from('equipment').update({image_url:urls[0].public_url}).eq('id',equipmentId);
+ }
+ return urls;
+}
+$('#equipmentForm').onsubmit=async e=>{
+ e.preventDefault();
+ const button=e.target.querySelector('button[type="submit"]');
+ button.disabled=true; button.textContent='Adding Equipment…';
+ const row={name:$('#eqName').value,category:$('#eqCategory').value,description:$('#eqDescription').value,daily_rate:$('#eqDaily').value||null,weekly_rate:$('#eqWeekly').value||null,deposit:$('#eqDeposit').value||null};
+ const {data:created,error}=await db.from('equipment').insert(row).select().single();
+ if(error){button.disabled=false;button.textContent='Add Equipment';return msg(error.message)}
+ try{
+   if(selectedEquipmentFiles.length) await uploadEquipmentPhotos(created.id,selectedEquipmentFiles);
+   e.target.reset(); selectedEquipmentFiles=[]; $('#eqImagePreview').innerHTML='';
+   msg('Equipment and photos added.');
+   loadAdmin();
+ }catch(err){
+   msg(`Equipment was added, but photo upload failed: ${err.message}`);
+ }
+ button.disabled=false; button.textContent='Add Equipment';
+};
 
 function renderCalendar(){
  const rows=adminRentals.filter(x=>['approved','active'].includes(x.status)).sort((a,b)=>a.start_date.localeCompare(b.start_date));
@@ -239,3 +282,48 @@ db.auth.onAuthStateChange(async (event,session)=>{
     },250);
   }
 });
+
+window.manageEqPhotos=async id=>{
+ const eq=adminEquipment.find(x=>x.id===id); if(!eq)return;
+ let modal=document.getElementById('photoManagerModal');
+ if(!modal){modal=document.createElement('div');modal.id='photoManagerModal';modal.className='photo-manager-modal hidden';document.body.appendChild(modal)}
+ const {data:imgs,error}=await db.from('equipment_images').select('*').eq('equipment_id',id).order('sort_order');
+ if(error)return msg(error.message);
+ modal.innerHTML=`<div class="photo-manager-card">
+   <button class="photo-close" onclick="document.getElementById('photoManagerModal').classList.add('hidden')">×</button>
+   <div class="eyebrow">FLEET MEDIA</div><h2>${esc(eq.name)} Photos</h2>
+   <p class="muted">Upload more photos, choose the cover photo, or remove old photos.</p>
+   <div class="photo-manager-grid">${(imgs||[]).map(im=>`<div class="managed-photo ${im.is_cover?'cover':''}">
+     <img src="${esc(im.public_url)}" alt="">
+     <div class="managed-actions">${im.is_cover?'<span class="cover-tag">COVER</span>':`<button onclick="setCoverPhoto('${id}','${im.id}')">Make Cover</button>`}<button class="danger" onclick="deleteEqPhoto('${id}','${im.id}','${esc(im.storage_path)}')">Delete</button></div>
+   </div>`).join('')||'<p class="muted">No photos uploaded yet.</p>'}</div>
+   <label class="add-photo-box">Add More Photos<input id="moreEqPhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple></label>
+   <button class="btn" id="uploadMorePhotos">Upload Photos</button>
+ </div>`;
+ modal.classList.remove('hidden');
+ document.getElementById('uploadMorePhotos').onclick=async()=>{
+   const files=[...document.getElementById('moreEqPhotos').files].slice(0,8);
+   if(!files.length)return msg('Choose at least one photo.');
+   try{await uploadEquipmentPhotos(id,files);await manageEqPhotos(id);loadAdmin();msg('Photos uploaded.')}catch(e){msg(e.message)}
+ };
+};
+window.setCoverPhoto=async(equipmentId,imageId)=>{
+ const {data:img}=await db.from('equipment_images').select('*').eq('id',imageId).single();
+ await db.from('equipment_images').update({is_cover:false}).eq('equipment_id',equipmentId);
+ const {error}=await db.from('equipment_images').update({is_cover:true}).eq('id',imageId);
+ if(error)return msg(error.message);
+ await db.from('equipment').update({image_url:img.public_url}).eq('id',equipmentId);
+ await manageEqPhotos(equipmentId);loadAdmin();msg('Cover photo updated.');
+};
+window.deleteEqPhoto=async(equipmentId,imageId,path)=>{
+ if(!confirm('Delete this equipment photo?'))return;
+ const {data:img}=await db.from('equipment_images').select('*').eq('id',imageId).single();
+ await db.storage.from('equipment-images').remove([path]);
+ await db.from('equipment_images').delete().eq('id',imageId);
+ if(img?.is_cover){
+   const {data:next}=await db.from('equipment_images').select('*').eq('equipment_id',equipmentId).order('sort_order').limit(1).maybeSingle();
+   await db.from('equipment').update({image_url:next?.public_url||null}).eq('id',equipmentId);
+   if(next) await db.from('equipment_images').update({is_cover:true}).eq('id',next.id);
+ }
+ await manageEqPhotos(equipmentId);loadAdmin();msg('Photo deleted.');
+};

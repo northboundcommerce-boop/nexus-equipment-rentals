@@ -106,7 +106,12 @@
               <label>Name</label><input id="eqName" required>
               <label>Category</label><input id="eqCategory">
               <label>Description</label><textarea id="eqDescription"></textarea>
-              <label>Image URL</label><input id="eqImage" type="url">
+              <label>Equipment Photos</label>
+<div class="equipment-upload">
+  <input id="eqImages" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+  <small>Upload up to 8 photos. The first photo will be the cover image.</small>
+  <div id="eqImagePreview" class="eq-upload-preview"></div>
+</div>
               <div class="form-two"><div><label>Daily Rate</label><input id="eqDaily" type="number" min="0" step=".01"></div><div><label>Weekly Rate</label><input id="eqWeekly" type="number" min="0" step=".01"></div></div>
               <label>Deposit</label><input id="eqDeposit" type="number" min="0" step=".01">
               <button class="btn" type="submit">Add Equipment</button>
