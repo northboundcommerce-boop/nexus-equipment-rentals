@@ -64,7 +64,95 @@ async function loadCustomerEquipment(approved){
 function eqCard(x,admin=false,approved=false){
  return `<div class="equipment-item">${x.image_url?`<img src="${esc(x.image_url)}" alt="" class="eq-img">`:''}<span class="status">${esc(x.status)}</span><h3>${esc(x.name)}</h3><p class="muted">${esc(x.category||'Equipment')}</p><p>${esc(x.description||'')}</p><div class="rate-row"><b>${money(x.daily_rate)}/day</b><span>${money(x.weekly_rate)}/week</span></div>${admin?`<div class="admin-actions"><button class="small-btn" onclick="editEq('${x.id}')">Edit</button><button class="small-btn" onclick="setEq('${x.id}','available')">Available</button><button class="small-btn" onclick="setEq('${x.id}','maintenance')">Maintenance</button><button class="small-btn red" onclick="removeEq('${x.id}')">Remove</button></div>`:(approved&&x.status==='available'?`<button class="small-btn red" onclick="requestRental('${x.id}','${esc(x.name)}')">Request Rental</button>`:'')}</div>`
 }
-window.requestRental=async(id,name)=>{const start=prompt(`Start date for ${name} (YYYY-MM-DD)`);if(!start)return;const end=prompt('End date (YYYY-MM-DD)');if(!end)return;const {data:{user}}=await db.auth.getUser();const {error}=await db.from('rental_requests').insert({customer_id:user.id,equipment_id:id,start_date:start,end_date:end});msg(error?error.message:'Rental request submitted to Nexus.');loadCustomer()};
+window.requestRental=async(id,name)=>{
+ const {data:eq,error:eqErr}=await db.from('equipment').select('*').eq('id',id).single();
+ if(eqErr)return msg(eqErr.message);
+ if(eq.status!=='available'||eq.available===false)return msg('This equipment is currently unavailable or under maintenance.');
+
+ const {data:bookings,error:bErr}=await db.from('rental_requests')
+   .select('start_date,end_date,status')
+   .eq('equipment_id',id)
+   .in('status',['approved','active']);
+ if(bErr)return msg(bErr.message);
+
+ const blocked=(bookings||[]).map(b=>({start:b.start_date,end:b.end_date,status:b.status}));
+ let modal=document.getElementById('rentalRequestModal');
+ if(!modal){modal=document.createElement('div');modal.id='rentalRequestModal';document.body.appendChild(modal)}
+ const today=new Date().toISOString().slice(0,10);
+
+ const conflicts=(start,end)=>blocked.some(b=>start<=b.end && end>=b.start);
+ const blockedHtml=blocked.length?blocked.map(b=>`<div class="blocked-date-row"><b>${esc(b.start)}</b><span>through</span><b>${esc(b.end)}</b><em>UNAVAILABLE</em></div>`).join(''):'<div class="available-message">No approved rentals are currently blocking dates.</div>';
+
+ modal.className='rental-form-modal';
+ modal.innerHTML=`<div class="rental-form-card">
+   <button class="rental-form-close" onclick="document.getElementById('rentalRequestModal').remove()">×</button>
+   <p class="nexus-kicker">NEXUS EQUIPMENT RENTALS</p>
+   <h2>Request ${esc(name)}</h2>
+   <p class="muted">Select your dates below. Dates already reserved by another customer cannot be requested.</p>
+
+   <div class="equipment-availability-banner ${eq.status==='maintenance'?'maintenance':''}">
+     <span>Current Equipment Status</span><b>${esc((eq.status||'available').toUpperCase())}</b>
+   </div>
+
+   <div class="booking-calendar">
+     <div class="booking-calendar-head"><h3>Availability Calendar</h3><span>Reserved dates</span></div>
+     <div class="blocked-date-list">${blockedHtml}</div>
+   </div>
+
+   <form id="rentalRequestForm">
+    <div class="rental-form-grid">
+     <label>Start Date<input id="rentalStart" type="date" min="${today}" required></label>
+     <label>End Date<input id="rentalEnd" type="date" min="${today}" required></label>
+     <label>Job / Project Type<input id="rentalProject" type="text" placeholder="Excavation, grading, cleanup..."></label>
+     <label>Job Site City<input id="rentalCity" type="text" placeholder="City"></label>
+    </div>
+    <div id="dateAvailabilityMessage" class="date-check-message">Choose start and end dates to check availability.</div>
+    <label>Rental Notes<textarea id="rentalNotes" rows="4" placeholder="Job details, delivery needs, questions, etc."></textarea></label>
+    <div class="rental-summary">
+      <div><span>Equipment</span><b>${esc(name)}</b></div>
+      ${eq.daily_rate?`<div><span>Daily Rate</span><b>${money(eq.daily_rate)}</b></div>`:''}
+      ${eq.weekly_rate?`<div><span>Weekly Rate</span><b>${money(eq.weekly_rate)}</b></div>`:''}
+      ${eq.deposit?`<div><span>Deposit</span><b>${money(eq.deposit)}</b></div>`:''}
+    </div>
+    <label class="rental-agree"><input id="rentalAgree" type="checkbox" required> I understand this request must be approved by Nexus.</label>
+    <button id="rentalSubmitBtn" class="small-btn red rental-submit" type="submit">Submit Rental Request</button>
+   </form>
+ </div>`;
+
+ const checkDates=()=>{
+   const s=$('#rentalStart')?.value,e=$('#rentalEnd')?.value,notice=$('#dateAvailabilityMessage'),btn=$('#rentalSubmitBtn');
+   if(!s||!e){notice.className='date-check-message';notice.textContent='Choose start and end dates to check availability.';btn.disabled=false;return}
+   if(e<s){notice.className='date-check-message unavailable';notice.textContent='End date must be on or after the start date.';btn.disabled=true;return}
+   if(conflicts(s,e)){notice.className='date-check-message unavailable';notice.textContent='Those dates overlap an existing rental. Please choose different dates.';btn.disabled=true;return}
+   notice.className='date-check-message available';notice.textContent='✓ These dates are currently available.';btn.disabled=false;
+ };
+ $('#rentalStart').onchange=()=>{ $('#rentalEnd').min=$('#rentalStart').value||today; checkDates() };
+ $('#rentalEnd').onchange=checkDates;
+
+ $('#rentalRequestForm').onsubmit=async e=>{
+   e.preventDefault();
+   const startDate=$('#rentalStart').value,endDate=$('#rentalEnd').value;
+   if(endDate<startDate)return msg('End date must be on or after the start date.');
+   if(conflicts(startDate,endDate))return msg('Those dates are already reserved. Please choose different dates.');
+
+   // Re-check the database immediately before submitting to reduce race conditions.
+   const {data:freshEq}=await db.from('equipment').select('status,available').eq('id',id).single();
+   if(!freshEq||freshEq.status!=='available'||freshEq.available===false)return msg('This equipment is no longer available.');
+   const {data:fresh}=await db.from('rental_requests').select('start_date,end_date,status').eq('equipment_id',id).in('status',['approved','active']);
+   if((fresh||[]).some(b=>startDate<=b.end_date && endDate>=b.start_date))return msg('Those dates were just reserved. Please choose different dates.');
+
+   const notes=[
+     $('#rentalProject').value.trim()?`Project: ${$('#rentalProject').value.trim()}`:'',
+     $('#rentalCity').value.trim()?`Job site city: ${$('#rentalCity').value.trim()}`:'',
+     $('#rentalNotes').value.trim()
+   ].filter(Boolean).join('\n');
+   const btn=$('#rentalSubmitBtn');btn.disabled=true;btn.textContent='Submitting...';
+   const {data:{user}}=await db.auth.getUser();
+   const {error}=await db.from('rental_requests').insert({customer_id:user.id,equipment_id:id,start_date:startDate,end_date:endDate,customer_notes:notes||null});
+   if(error){btn.disabled=false;btn.textContent='Submit Rental Request';return msg(error.message)}
+   modal.remove();msg('Rental request submitted to Nexus for approval.');loadCustomer();
+ };
+};
 
 async function loadAdmin(){
  const [pc,rr,eq]=await Promise.all([
@@ -173,3 +261,19 @@ async function boot(){
  if(await isAdmin()){$('#adminView').classList.remove('hidden');await loadAdmin()}else{$('#customerView').classList.remove('hidden');await loadCustomer()}
 }
 boot();
+(function addRentalCalendarStyles(){
+ if(document.getElementById('nexusRentalCalendarStyles'))return;
+ const s=document.createElement('style');s.id='nexusRentalCalendarStyles';
+ s.textContent=`
+ .rental-form-modal{position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,.9);display:flex;align-items:center;justify-content:center;padding:20px}
+ .rental-form-card{position:relative;width:min(760px,100%);max-height:94vh;overflow:auto;background:#0d0d10;border:1px solid #303038;border-radius:14px;padding:30px;color:#fff;box-shadow:0 30px 100px #000}
+ .rental-form-close{position:absolute;right:18px;top:12px;background:none;border:0;color:#fff;font-size:34px;cursor:pointer}.rental-form-card h2{margin:6px 0 8px}
+ .equipment-availability-banner{display:flex;justify-content:space-between;align-items:center;margin:18px 0;padding:12px 14px;border:1px solid #215b3a;border-radius:8px;background:#0d2016}.equipment-availability-banner span{color:#aaa;font-size:11px;text-transform:uppercase}.equipment-availability-banner b{color:#55d98a}
+ .booking-calendar{margin:16px 0;padding:16px;border:1px solid #2d2d34;border-radius:10px;background:#08080a}.booking-calendar-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}.booking-calendar-head h3{margin:0}.booking-calendar-head span{color:#888;font-size:11px}.blocked-date-row{display:grid;grid-template-columns:1fr auto 1fr auto;gap:10px;align-items:center;padding:9px 0;border-top:1px solid #24242a}.blocked-date-row span{color:#777}.blocked-date-row em{font-style:normal;color:#ff666e;font-size:10px;font-weight:900}.available-message{padding:12px;border:1px dashed #2d4f3b;border-radius:7px;color:#73d99b}
+ .rental-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin:18px 0 12px}.rental-form-card label{display:block;color:#ddd;font-size:12px;font-weight:800}.rental-form-card input,.rental-form-card textarea{width:100%;box-sizing:border-box;margin-top:7px;padding:13px;border:1px solid #36363e;border-radius:7px;background:#070709;color:#fff;font:inherit;color-scheme:dark}.rental-form-card textarea{resize:vertical}
+ .date-check-message{margin:0 0 15px;padding:11px 13px;border:1px solid #333;border-radius:7px;color:#aaa;background:#0a0a0c}.date-check-message.available{border-color:#225d3c;color:#67dc94;background:#0c2015}.date-check-message.unavailable{border-color:#70272c;color:#ff777e;background:#251013}
+ .rental-summary{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:18px 0;padding:15px;border:1px solid #2b2b31;border-radius:9px;background:#09090b}.rental-summary div{display:flex;justify-content:space-between;gap:12px}.rental-summary span{color:#888}.rental-agree{display:flex!important;align-items:flex-start;gap:9px;margin:16px 0;line-height:1.45}.rental-agree input{width:auto!important;margin-top:2px!important}.rental-submit{width:100%;padding:14px!important}.rental-submit:disabled{opacity:.45;cursor:not-allowed}
+ @media(max-width:620px){.rental-form-grid,.rental-summary{grid-template-columns:1fr}.blocked-date-row{grid-template-columns:1fr 1fr}.blocked-date-row span{display:none}.rental-form-card{padding:24px 15px}}
+ `;
+ document.head.appendChild(s);
+})();
