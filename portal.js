@@ -74,6 +74,7 @@ async function loadCustomer(){
 
  renderCustomerApprovalTracker(status);
  renderCustomerAdminMessage(p);
+ await loadCustomerChat(user.id);
  await loadVerification();
 
  await loadCustomerEquipment(status==='approved');
@@ -1076,3 +1077,63 @@ window.createCustomerInvite=async()=>{
  finally{if(btn){btn.disabled=false;btn.textContent='Create Customer & Send Invite'}}
 };
 (function(){if(document.getElementById('nexusAddCustomerStyles'))return;const st=document.createElement('style');st.id='nexusAddCustomerStyles';st.textContent=`.add-customer-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:18px 0}.add-customer-grid label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#999}.add-customer-grid input,.add-customer-grid select{display:block;width:100%;box-sizing:border-box;margin-top:7px;background:#0b0b0d;border:1px solid #333;color:#fff;padding:12px;border-radius:7px}.add-customer-grid .full{grid-column:1/-1}@media(max-width:650px){.add-customer-grid{grid-template-columns:1fr}.add-customer-grid .full{grid-column:auto}}`;document.head.appendChild(st)})();
+
+
+async function loadCustomerChat(userId){
+ let mount=document.getElementById('customerChatBox');
+ if(!mount){
+  mount=document.createElement('div');mount.id='customerChatBox';mount.className='nexus-chat-card';
+  const old=document.querySelector('.admin-message-card')||document.querySelector('[class*="message-from"]');
+  const host=old?.parentElement||document.querySelector('#customerStatus')?.parentElement||document.querySelector('.customer-left')||document.body;
+  old?.insertAdjacentElement('afterend',mount) || host.appendChild(mount);
+ }
+ const {data:rows,error}=await db.from('customer_messages').select('*').eq('customer_id',userId).order('created_at',{ascending:true});
+ if(error){mount.innerHTML=`<div class="chat-title">MESSAGES WITH NEXUS</div><p class="muted">${esc(error.message)}</p>`;return}
+ mount.innerHTML=`<div class="chat-title">MESSAGES WITH NEXUS</div>
+ <div class="chat-thread">${rows?.length?rows.map(m=>`<div class="chat-msg ${m.sender_type==='admin'?'from-admin':'from-customer'}"><div class="chat-who">${m.sender_type==='admin'?'NEXUS':'YOU'}</div><div>${esc(m.message)}</div><small>${new Date(m.created_at).toLocaleString()}</small></div>`).join(''):'<p class="muted">No messages yet.</p>'}</div>
+ <div class="chat-compose"><textarea id="customerChatInput" maxlength="2000" placeholder="Type a reply..."></textarea><button class="small-btn red" onclick="sendCustomerChat()">Send Message</button></div>`;
+ const thread=mount.querySelector('.chat-thread');if(thread)thread.scrollTop=thread.scrollHeight;
+ // Mark admin messages as read by customer.
+ await db.from('customer_messages').update({read_by_customer:true}).eq('customer_id',userId).eq('sender_type','admin').eq('read_by_customer',false);
+}
+window.sendCustomerChat=async()=>{
+ const input=document.getElementById('customerChatInput'),message=input?.value.trim();
+ if(!message)return;
+ const {data:{user}}=await db.auth.getUser();if(!user)return msg('Please sign in again.');
+ const {error}=await db.from('customer_messages').insert({customer_id:user.id,sender_id:user.id,sender_type:'customer',message});
+ if(error)return msg(error.message);
+ input.value='';await loadCustomerChat(user.id);
+};
+
+async function loadAdminCustomerChat(customerId){
+ const mount=document.getElementById('adminCustomerChat');if(!mount)return;
+ const {data:rows,error}=await db.from('customer_messages').select('*').eq('customer_id',customerId).order('created_at',{ascending:true});
+ if(error){mount.innerHTML=`<p class="muted">${esc(error.message)}</p>`;return}
+ mount.innerHTML=`<div class="chat-thread admin-thread">${rows?.length?rows.map(m=>`<div class="chat-msg ${m.sender_type==='admin'?'from-admin':'from-customer'}"><div class="chat-who">${m.sender_type==='admin'?'NEXUS':'CUSTOMER'}</div><div>${esc(m.message)}</div><small>${new Date(m.created_at).toLocaleString()}</small></div>`).join(''):'<p class="muted">No messages yet.</p>'}</div>
+ <div class="chat-compose"><textarea id="adminChatInput" maxlength="2000" placeholder="Reply to customer..."></textarea><button class="small-btn red" onclick="sendAdminCustomerChat('${customerId}')">Send Message</button></div>`;
+ const thread=mount.querySelector('.chat-thread');if(thread)thread.scrollTop=thread.scrollHeight;
+ await db.from('customer_messages').update({read_by_admin:true}).eq('customer_id',customerId).eq('sender_type','customer').eq('read_by_admin',false);
+}
+window.sendAdminCustomerChat=async customerId=>{
+ const input=document.getElementById('adminChatInput'),message=input?.value.trim();if(!message)return;
+ const {data:{user}}=await db.auth.getUser();if(!user)return msg('Please sign in again.');
+ const {error}=await db.from('customer_messages').insert({customer_id:customerId,sender_id:user.id,sender_type:'admin',message});
+ if(error)return msg(error.message);
+ input.value='';await loadAdminCustomerChat(customerId);
+};
+
+// Inject admin chat into every opened customer-profile modal without disturbing existing profile actions.
+document.addEventListener('click',e=>{
+ const b=e.target.closest('[onclick*="openCustomerProfile"]');if(!b)return;
+ setTimeout(()=>{
+  const modal=[...document.querySelectorAll('.modal,.modal-card,.modal-content')].find(x=>x.offsetParent!==null);
+  if(!modal||document.getElementById('adminCustomerChat'))return;
+  const m=(b.getAttribute('onclick')||'').match(/openCustomerProfile\(['"]([^'"]+)/);if(!m)return;
+  const sec=document.createElement('section');sec.className='admin-chat-section';sec.innerHTML='<h2>Customer Messages</h2><div id="adminCustomerChat"></div>';
+  modal.appendChild(sec);loadAdminCustomerChat(m[1]);
+ },350);
+},true);
+
+(function(){if(document.getElementById('nexusChatStyles'))return;const st=document.createElement('style');st.id='nexusChatStyles';st.textContent=`
+.nexus-chat-card,.admin-chat-section{margin-top:22px;padding:16px;border:1px solid #303038;border-radius:10px;background:#0b0b0e}.chat-title{font-size:10px;font-weight:900;letter-spacing:.16em;color:#ff2733;margin-bottom:12px}.chat-thread{max-height:310px;overflow:auto;padding:5px;display:flex;flex-direction:column;gap:10px}.chat-msg{max-width:82%;padding:10px 12px;border-radius:10px;border:1px solid #333;line-height:1.4}.chat-msg.from-admin{align-self:flex-start;background:#17171b}.chat-msg.from-customer{align-self:flex-end;background:#2b1014;border-color:#6c2028}.chat-who{font-size:9px;font-weight:900;letter-spacing:.1em;color:#ff303b;margin-bottom:4px}.chat-msg small{display:block;color:#777;margin-top:6px;font-size:9px}.chat-compose{display:flex;gap:9px;margin-top:12px}.chat-compose textarea{flex:1;min-height:60px;resize:vertical;background:#09090b;color:#fff;border:1px solid #34343a;border-radius:8px;padding:10px}.admin-chat-section{margin:20px}`;
+document.head.appendChild(st)})();
