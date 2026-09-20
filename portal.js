@@ -1048,3 +1048,25 @@ document.addEventListener('click',async function(e){
    status.textContent='Signing error: '+(err?.message||String(err));
  }
 },true);
+
+
+window.openAddCustomer=()=>{
+ let m=document.getElementById('addCustomerModal');if(m)m.remove();
+ m=document.createElement('div');m.id='addCustomerModal';m.className='admin-message-modal';
+ m.innerHTML=`<div class="admin-message-card" style="max-width:650px"><button class="admin-message-close" onclick="document.getElementById('addCustomerModal').remove()">×</button><p class="nexus-kicker">NEXUS ADMIN</p><h2>Add Customer</h2><p class="muted">Create the customer account and send them an email invite to set up access.</p><div class="add-customer-grid"><label>Full Name<input id="newCustomerName" autocomplete="off"></label><label>Email<input id="newCustomerEmail" type="email" autocomplete="off"></label><label>Phone<input id="newCustomerPhone" type="tel" autocomplete="off"></label><label>Account Type<select id="newCustomerType"><option value="individual">Individual</option><option value="business">Business</option></select></label><label class="full">Business Name<input id="newCustomerBusiness" autocomplete="off" placeholder="Only if business account"></label><label class="full">Initial Status<select id="newCustomerStatus"><option value="pending">Pending Review</option><option value="approved">Approved</option></select></label></div><div id="addCustomerError" class="contract-sign-error" style="display:none"></div><div class="admin-message-actions"><button type="button" class="small-btn red" id="createCustomerBtn" onclick="createCustomerInvite()">Create Customer & Send Invite</button><button type="button" class="small-btn" onclick="document.getElementById('addCustomerModal').remove()">Cancel</button></div></div>`;
+ document.body.appendChild(m);
+};
+window.createCustomerInvite=async()=>{
+ const btn=document.getElementById('createCustomerBtn'),err=document.getElementById('addCustomerError');
+ const body={full_name:document.getElementById('newCustomerName')?.value.trim(),email:document.getElementById('newCustomerEmail')?.value.trim(),phone:document.getElementById('newCustomerPhone')?.value.trim(),account_type:document.getElementById('newCustomerType')?.value,business_name:document.getElementById('newCustomerBusiness')?.value.trim(),approval_status:document.getElementById('newCustomerStatus')?.value};
+ if(!body.full_name||!body.email){err.style.display='block';err.textContent='Full name and email are required.';return}
+ try{
+  btn.disabled=true;btn.textContent='CREATING…';err.style.display='none';
+  const {data:{session}}=await db.auth.getSession();if(!session?.access_token)throw new Error('Admin session expired. Sign in again.');
+  const r=await fetch('/api/create-customer',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||`Request failed (${r.status})`);
+  document.getElementById('addCustomerModal')?.remove();msg('Customer created and invite sent to '+j.email+'.');await loadAdmin();
+ }catch(e){err.style.display='block';err.innerHTML='<b>Could not add customer</b><span>'+esc(e.message||String(e))+'</span>'}
+ finally{if(btn){btn.disabled=false;btn.textContent='Create Customer & Send Invite'}}
+};
+(function(){if(document.getElementById('nexusAddCustomerStyles'))return;const st=document.createElement('style');st.id='nexusAddCustomerStyles';st.textContent=`.add-customer-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:18px 0}.add-customer-grid label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#999}.add-customer-grid input,.add-customer-grid select{display:block;width:100%;box-sizing:border-box;margin-top:7px;background:#0b0b0d;border:1px solid #333;color:#fff;padding:12px;border-radius:7px}.add-customer-grid .full{grid-column:1/-1}@media(max-width:650px){.add-customer-grid{grid-template-columns:1fr}.add-customer-grid .full{grid-column:auto}}`;document.head.appendChild(st)})();
