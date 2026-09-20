@@ -83,8 +83,8 @@ async function loadCustomer(){
    const cancellable=['pending','approved','contract_required','confirmed'].includes(x.status);
    const action=x.status==='contract_required'
      ? `<button class="small-btn red contract-sign-btn" onclick="openRentalContract('${x.id}')">Review & Sign Contract</button>`
-     : x.status==='confirmed'
-       ? `<small class="contract-signed-note">✓ Contract signed — rental confirmed</small>`:'';
+     : ['confirmed','active','completed'].includes(x.status)
+       ? `<div class="customer-signed-contract-actions"><small class="contract-signed-note">✓ Contract signed</small><button class="small-btn" onclick="viewMySignedContract('${x.id}')">View Contract</button><button class="small-btn" onclick="downloadMySignedContract('${x.id}')">Download Copy</button></div>`:'';
    return `<div class="notice client-rental-row">
      <div class="client-rental-info">
        <b>${esc(x.equipment?.name||'Equipment')}</b>
@@ -649,79 +649,66 @@ window.approveRentalForContract=async id=>{
 window.openRentalContract=async id=>{
  const {data:{user}}=await db.auth.getUser();
  const {data:r,error}=await db.from('rental_requests').select('*').eq('id',id).eq('customer_id',user.id).maybeSingle();
- if(error)return msg(error.message);
- if(!r)return msg('Rental request not found.');
+ if(error)return msg(error.message);if(!r)return msg('Rental request not found.');
  if(r.status!=='contract_required')return msg('This rental is not awaiting a contract.');
-
- const [{data:p},{data:eq}]=await Promise.all([
-   db.from('profiles').select('*').eq('id',user.id).maybeSingle(),
-   db.from('equipment').select('*').eq('id',r.equipment_id).maybeSingle()
+ const [{data:p},{data:v},{data:eq},{data:t}]=await Promise.all([
+  db.from('profiles').select('*').eq('id',user.id).maybeSingle(),
+  db.from('customer_verifications').select('*').eq('user_id',user.id).maybeSingle(),
+  db.from('equipment').select('*').eq('id',r.equipment_id).maybeSingle(),
+  db.from('contract_templates').select('*').eq('is_active',true).order('created_at',{ascending:false}).limit(1).maybeSingle()
  ]);
- let modal=document.getElementById('rentalContractModal');
- if(!modal){modal=document.createElement('div');modal.id='rentalContractModal';document.body.appendChild(modal)}
- modal.className='contract-modal';
- modal.innerHTML=`<div class="contract-card">
-  <button class="contract-close" onclick="document.getElementById('rentalContractModal').remove()">×</button>
-  <p class="nexus-kicker">NEXUS EQUIPMENT RENTALS</p>
-  <h2>Equipment Rental Agreement</h2>
-  <p class="contract-warning"><b>Contract template:</b> Nexus should have its attorney review/replace the legal terms below before relying on this agreement in production.</p>
-
+ const legalName=[v?.legal_first_name,v?.legal_last_name].filter(Boolean).join(' ')||p?.full_name||'';
+ const address=[v?.address_line1,v?.city,v?.state,v?.postal_code].filter(Boolean).join(', ');
+ let pdfUrl=null;if(t?.storage_path){const sr=await db.storage.from('rental-contract-templates').createSignedUrl(t.storage_path,1800);pdfUrl=sr.data?.signedUrl||null}
+ let modal=document.getElementById('rentalContractModal');if(!modal){modal=document.createElement('div');modal.id='rentalContractModal';document.body.appendChild(modal)}
+ modal.className='contract-modal';modal.dataset.templateId=t?.id||'';modal.dataset.templateVersion=t?.version||'1.0';modal.dataset.templateName=t?.name||'Nexus Equipment Rental Agreement';modal.dataset.templatePath=t?.storage_path||'';
+ modal.innerHTML=`<div class="contract-card customer-contract-card">
+  <button class="contract-close" onclick="document.getElementById('rentalContractModal').remove()">×</button><p class="nexus-kicker">NEXUS EQUIPMENT RENTALS</p><h2>Review & Sign Rental Agreement</h2>
+  <div class="contract-autofill-banner">✓ Your account and rental information has been automatically filled in. Review it before signing.</div>
   <div class="contract-summary">
-   <div><span>Customer</span><b>${esc(p?.full_name||user.email)}</b></div>
-   <div><span>Equipment</span><b>${esc(eq?.name||'Equipment')}</b></div>
-   <div><span>Rental Period</span><b>${esc(r.start_date)} → ${esc(r.end_date)}</b></div>
-   <div><span>Daily Rate</span><b>${money(eq?.daily_rate)}</b></div>
-   <div><span>Weekly Rate</span><b>${money(eq?.weekly_rate)}</b></div>
-   <div><span>Deposit</span><b>${money(eq?.deposit)}</b></div>
+   <div><span>Legal Name</span><b>${esc(legalName||user.email)}</b></div><div><span>Email</span><b>${esc(p?.email||user.email)}</b></div>
+   <div><span>Phone</span><b>${esc(p?.phone||'—')}</b></div><div><span>Address</span><b>${esc(address||'—')}</b></div>
+   <div><span>Equipment</span><b>${esc(eq?.name||'Equipment')}</b></div><div><span>Rental Period</span><b>${esc(r.start_date)} → ${esc(r.end_date)}</b></div>
+   <div><span>Daily Rate</span><b>${money(eq?.daily_rate)}</b></div><div><span>Weekly Rate</span><b>${money(eq?.weekly_rate)}</b></div><div><span>Deposit</span><b>${money(eq?.deposit)}</b></div>
   </div>
-
-  <div class="contract-terms">
-   <h3>Rental Terms</h3>
-   <p>Customer agrees to use the equipment only for lawful and intended purposes, to exercise reasonable care, and to return it by the agreed return date in substantially the same condition, ordinary wear excepted.</p>
-   <p>Customer acknowledges responsibility for charges associated with the rental as shown above and for additional amounts that may lawfully become due under Nexus Equipment Rentals' final approved rental agreement.</p>
-   <p>Customer agrees to promptly notify Nexus Equipment Rentals of damage, loss, theft, malfunction, accident, or any circumstance affecting safe operation of the equipment.</p>
-   <p>Customer confirms that the information provided with the rental request and identity-verification submission is accurate to the best of the customer's knowledge.</p>
-  </div>
-
-  <label class="contract-check"><input id="contractAccept" type="checkbox"> I have reviewed the rental information and agree to the terms shown above.</label>
-  <label>Electronic Signature<input id="contractSignature" class="contract-input" type="text" placeholder="Type your full legal name"></label>
-  <p class="contract-esign">By selecting “Sign & Confirm Rental,” you intend your typed name and submission to serve as your electronic signature for this agreement.</p>
+  ${pdfUrl?`<div class="uploaded-contract-box"><div><b>${esc(t.name)}</b><small>Version ${esc(t.version)}</small></div><a class="small-btn" href="${pdfUrl}" target="_blank" rel="noopener">Open Full PDF Contract</a></div>`:`<div class="contract-warning"><b>No uploaded PDF is active.</b> Nexus should activate a contract in Admin → Contracts before relying on this signing flow.</div>`}
+  <div class="contract-terms"><h3>Electronic Signature</h3><p>By signing below, you confirm that you reviewed the rental details and the active rental agreement shown above, and you intend your typed name and submission to serve as your electronic signature.</p></div>
+  <label class="contract-check"><input id="contractAccept" type="checkbox"> I reviewed the rental information and contract and agree to sign electronically.</label>
+  <label>Electronic Signature<input id="contractSignature" class="contract-input" type="text" value="${esc(legalName)}" placeholder="Type your full legal name"></label>
+  <p class="contract-esign">Your name is prefilled from your verified/account information. You may correct it before signing if needed.</p>
   <button class="small-btn red contract-submit" onclick="signRentalContract('${id}')">Sign & Confirm Rental</button>
  </div>`;
 };
-
 window.signRentalContract=async id=>{
- const accepted=$('#contractAccept')?.checked;
- const signature=$('#contractSignature')?.value.trim();
- if(!accepted)return msg('You must agree to the rental terms before signing.');
+ const accepted=$('#contractAccept')?.checked,signature=$('#contractSignature')?.value.trim();
+ if(!accepted)return msg('You must review and accept the agreement before signing.');
  if(!signature)return msg('Type your full legal name as your electronic signature.');
  const {data:{user}}=await db.auth.getUser();
  const {data:r,error:re}=await db.from('rental_requests').select('*').eq('id',id).eq('customer_id',user.id).maybeSingle();
- if(re||!r)return msg(re?.message||'Rental request not found.');
- if(r.status!=='contract_required')return msg('This contract is no longer available for signing.');
-
- const {data:p}=await db.from('profiles').select('full_name,email').eq('id',user.id).maybeSingle();
- const {data:eq}=await db.from('equipment').select('name,daily_rate,weekly_rate,deposit').eq('id',r.equipment_id).maybeSingle();
- const signedAt=new Date().toISOString();
- const snapshot={
-   version:'1.0',
-   customer_name:p?.full_name||signature,
-   customer_email:p?.email||user.email,
-   equipment_name:eq?.name||'Equipment',
-   start_date:r.start_date,end_date:r.end_date,
-   daily_rate:eq?.daily_rate??null,weekly_rate:eq?.weekly_rate??null,deposit:eq?.deposit??null,
-   terms_version:'Nexus rental agreement template v1.0'
- };
- const {error:ce}=await db.from('rental_contracts').insert({
-   rental_request_id:id,customer_id:user.id,signature_name:signature,signed_at:signedAt,
-   accepted:true,contract_snapshot:snapshot
- });
+ if(re||!r)return msg(re?.message||'Rental request not found.');if(r.status!=='contract_required')return msg('This contract is no longer available for signing.');
+ const [{data:p},{data:v},{data:eq}]=await Promise.all([db.from('profiles').select('*').eq('id',user.id).maybeSingle(),db.from('customer_verifications').select('*').eq('user_id',user.id).maybeSingle(),db.from('equipment').select('*').eq('id',r.equipment_id).maybeSingle()]);
+ const modal=document.getElementById('rentalContractModal'),signedAt=new Date().toISOString(),version=modal?.dataset.templateVersion||'1.0';
+ const snapshot={version,template_id:modal?.dataset.templateId||null,template_name:modal?.dataset.templateName||'Nexus Equipment Rental Agreement',template_storage_path:modal?.dataset.templatePath||null,customer_name:signature,customer_email:p?.email||user.email,customer_phone:p?.phone||null,customer_address:[v?.address_line1,v?.city,v?.state,v?.postal_code].filter(Boolean).join(', '),equipment_name:eq?.name||'Equipment',start_date:r.start_date,end_date:r.end_date,daily_rate:eq?.daily_rate??null,weekly_rate:eq?.weekly_rate??null,deposit:eq?.deposit??null,terms_version:version};
+ const {error:ce}=await db.from('rental_contracts').insert({rental_request_id:id,customer_id:user.id,signature_name:signature,signed_at:signedAt,accepted:true,contract_version:version,contract_snapshot:snapshot});
  if(ce)return msg(ce.message);
- const {error:ue}=await db.from('rental_requests').update({status:'confirmed'}).eq('id',id).eq('customer_id',user.id);
- if(ue)return msg(ue.message);
- document.getElementById('rentalContractModal')?.remove();
- msg('Contract signed. Your rental is confirmed.');
- loadCustomer();
+ const {error:ue}=await db.from('rental_requests').update({status:'confirmed'}).eq('id',id).eq('customer_id',user.id);if(ue)return msg(ue.message);
+ modal?.remove();msg('Contract signed. Your rental is confirmed.');loadCustomer();
+};
+
+window.viewMySignedContract=async id=>{
+ const {data:{user}}=await db.auth.getUser();
+ const {data:c,error}=await db.from('rental_contracts').select('*').eq('rental_request_id',id).eq('customer_id',user.id).maybeSingle();
+ if(error)return msg(error.message);if(!c)return msg('Signed contract not found.');
+ const snap=c.contract_snapshot||{};let pdfUrl=null;
+ if(snap.template_storage_path){const sr=await db.storage.from('rental-contract-templates').createSignedUrl(snap.template_storage_path,1800);pdfUrl=sr.data?.signedUrl||null}
+ let modal=document.getElementById('mySignedContractModal');if(!modal){modal=document.createElement('div');modal.id='mySignedContractModal';document.body.appendChild(modal)}
+ modal.className='contract-modal';modal.innerHTML=`<div class="contract-card"><button class="contract-close" onclick="document.getElementById('mySignedContractModal').remove()">×</button><p class="nexus-kicker">YOUR SIGNED AGREEMENT</p><h2>${esc(snap.equipment_name||'Equipment Rental Agreement')}</h2><div class="contract-summary"><div><span>Name</span><b>${esc(snap.customer_name||c.signature_name)}</b></div><div><span>Email</span><b>${esc(snap.customer_email||'')}</b></div><div><span>Rental Period</span><b>${esc(snap.start_date||'')} → ${esc(snap.end_date||'')}</b></div><div><span>Contract Version</span><b>${esc(c.contract_version||snap.version||'—')}</b></div><div><span>Signed</span><b>${new Date(c.signed_at).toLocaleString()}</b></div></div><div class="signed-signature"><span>ELECTRONIC SIGNATURE</span><strong>${esc(c.signature_name)}</strong></div>${pdfUrl?`<a class="small-btn red signed-pdf-link" href="${pdfUrl}" target="_blank" rel="noopener">View Contract PDF</a>`:'<p class="muted">No PDF template was attached when this agreement was signed.</p>'}</div>`;
+};
+window.downloadMySignedContract=async id=>{
+ const {data:{user}}=await db.auth.getUser();const {data:c,error}=await db.from('rental_contracts').select('*').eq('rental_request_id',id).eq('customer_id',user.id).maybeSingle();
+ if(error)return msg(error.message);if(!c)return msg('Signed contract not found.');const s=c.contract_snapshot||{};
+ const text=['NEXUS EQUIPMENT RENTALS','SIGNED RENTAL AGREEMENT RECORD','',`Customer: ${s.customer_name||c.signature_name}`,`Email: ${s.customer_email||user.email}`,`Address: ${s.customer_address||'—'}`,`Equipment: ${s.equipment_name||'Equipment'}`,`Rental Dates: ${s.start_date||'—'} to ${s.end_date||'—'}`,`Daily Rate: ${s.daily_rate??'—'}`,`Weekly Rate: ${s.weekly_rate??'—'}`,`Deposit: ${s.deposit??'—'}`,`Contract: ${s.template_name||'Nexus Equipment Rental Agreement'}`,`Version: ${c.contract_version||s.version||'—'}`,`Electronically Signed By: ${c.signature_name}`,`Signed At: ${new Date(c.signed_at).toLocaleString()}`].join('\n');
+ const blob=new Blob([text],{type:'text/plain;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`Nexus-Signed-Rental-${id}.txt`;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
 };
 
 window.viewSignedContract=async id=>{
@@ -1014,3 +1001,5 @@ window.retireContractTemplate=async id=>{
 };
 
 (function(){if(document.getElementById('nexusCustomerContractsStyles'))return;const s=document.createElement('style');s.id='nexusCustomerContractsStyles';s.textContent=`.profile-contracts{margin-top:16px;padding:18px;border:1px solid #292930;border-radius:10px;background:#09090b}.profile-contracts h3{margin:0}.profile-section-head{margin-bottom:14px}.customer-contract-row{display:grid;grid-template-columns:1.35fr auto 1fr auto;gap:14px;align-items:center;padding:14px 0;border-bottom:1px solid #24242a}.customer-contract-row:last-child{border-bottom:0}.contract-main b,.contract-main small,.contract-sign-details b,.contract-sign-details small{display:block}.contract-main small,.contract-sign-details small{color:#777;margin-top:3px}.contract-sign-status{font-size:10px;font-weight:900;letter-spacing:.08em;padding:8px 10px;border-radius:6px;white-space:nowrap}.contract-sign-status.signed{background:#102619;color:#75e5a0;border:1px solid #245b38}.contract-sign-status.unsigned{background:#281114;color:#ff737a;border:1px solid #6d252b}.contract-profile-actions{display:flex;gap:7px}@media(max-width:800px){.customer-contract-row{grid-template-columns:1fr}}`;document.head.appendChild(s)})();
+
+(function(){if(document.getElementById('nexusCustomerSignedContractStyles'))return;const s=document.createElement('style');s.id='nexusCustomerSignedContractStyles';s.textContent=`.customer-signed-contract-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px}.contract-autofill-banner{margin:14px 0;padding:12px 14px;border:1px solid #245b38;background:#102619;color:#86e9aa;border-radius:8px;font-size:12px;font-weight:700}.uploaded-contract-box{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:18px 0;padding:14px;border:1px solid #35353c;background:#101013;border-radius:9px}.uploaded-contract-box b,.uploaded-contract-box small{display:block}.uploaded-contract-box small{color:#777;margin-top:4px}.signed-pdf-link{display:inline-flex!important;margin-top:18px}@media(max-width:650px){.uploaded-contract-box{align-items:flex-start;flex-direction:column}}`;document.head.appendChild(s)})();
