@@ -6,7 +6,43 @@ function msg(t){$('#portalMsg').textContent=t;$('#portalMsg').classList.remove('
 async function signout(){await db.auth.signOut();location.reload()} $$('[data-signout]').forEach(b=>b.onclick=signout);
 
 $('#loginForm').onsubmit=async e=>{e.preventDefault();const {error}=await db.auth.signInWithPassword({email:$('#loginEmail').value,password:$('#loginPassword').value});if(error)return msg(error.message);boot()};
-$('#signupForm').onsubmit=async e=>{e.preventDefault();const email=$('#signupEmail').value;const {data,error}=await db.auth.signUp({email,password:$('#signupPassword').value});if(error)return msg(error.message);if(data.user){const {error:pe}=await db.from('profiles').upsert({id:data.user.id,email,full_name:$('#signupName').value,phone:$('#signupPhone').value,account_type:$('#signupType').value,business_name:$('#signupBusiness').value||null,approval_status:'pending'});if(pe)return msg(pe.message)}msg('Account created. Check your email if confirmation is required, then sign in.')};
+$('#signupForm').onsubmit=async e=>{
+ e.preventDefault();
+ const email=$('#signupEmail').value.trim();
+ const password=$('#signupPassword').value;
+ const full_name=$('#signupName').value.trim();
+ const phone=$('#signupPhone').value.trim();
+ const account_type=$('#signupType').value;
+ const business_name=$('#signupBusiness').value.trim()||null;
+
+ const {data,error}=await db.auth.signUp({
+   email,
+   password,
+   options:{
+     data:{
+       full_name,
+       phone,
+       account_type,
+       business_name
+     }
+   }
+ });
+
+ if(error){
+   if(String(error.message).toLowerCase().includes('rate limit')){
+     return msg('Too many confirmation emails have been requested. Please wait and try again later.');
+   }
+   return msg(error.message);
+ }
+
+ // The database trigger now creates public.profiles automatically.
+ // Do NOT manually insert/upsert a profile here.
+ msg(data.session
+   ? 'Account created. Your Nexus client profile is pending approval.'
+   : 'Account created. Check your email to confirm your address, then sign in. Your profile will be pending Nexus approval.'
+ );
+ e.target.reset();
+};
 async function isAdmin(){const {data}=await db.rpc('is_admin');return !!data}
 
 $$('.admin-tab').forEach(b=>b.onclick=()=>{ $$('.admin-tab').forEach(x=>x.classList.remove('active')); $$('.admin-panel').forEach(x=>x.classList.remove('active')); b.classList.add('active'); $('#tab-'+b.dataset.tab).classList.add('active') });
