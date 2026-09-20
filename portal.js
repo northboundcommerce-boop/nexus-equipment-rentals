@@ -494,7 +494,7 @@ window.openCustomerProfile=async id=>{
   ${c.more_info_request?`<div class="profile-note warning"><small>More Information Request</small><p>${esc(c.more_info_request)}</p></div>`:''}
 
   <section class="profile-rentals"><h3>Rental History</h3>
-   ${rentals.length?rentals.map(r=>{const e=equipmentMap[r.equipment_id];return `<div class="profile-rental-row"><div><b>${esc(e?.name||'Equipment')}</b><small>${esc(r.start_date||'—')} → ${esc(r.end_date||'—')}</small></div><span class="status">${esc((r.status||'pending').replaceAll('_',' '))}</span></div>`}).join(''):'<p class="muted">No rental requests yet.</p>'}
+   ${rentals.length?rentals.map(r=>{const e=equipmentMap[r.equipment_id];return `<div class="profile-rental-row"><div><b>${esc(e?.name||'Equipment')}</b><small>${esc(r.start_date||'—')} → ${esc(r.end_date||'—')}</small></div><div class="profile-rental-actions"><span class="status">${esc((r.status||'pending').replaceAll('_',' '))}</span>${r.status==='confirmed'?`<button class="small-btn red" onclick="markRentalPickedUpFromProfile('${r.id}','${id}')">Picked Up</button>`:''}${r.status==='active'?`<button class="small-btn" onclick="markRentalReturnedFromProfile('${r.id}','${id}')">Returned</button>`:''}</div></div>`}).join(''):'<p class="muted">No rental requests yet.</p>'}
   </section>
 
   <div class="profile-modal-actions">
@@ -504,6 +504,26 @@ window.openCustomerProfile=async id=>{
    ${verification?.status!=='verified'?`<button class="small-btn" onclick="verifyCustomerIdentity('${id}')">Verify Identity</button>`:'<button class="small-btn approved-btn" disabled>✓ Identity Verified</button>'}
   </div>
  </div>`;
+};
+
+
+window.markRentalPickedUpFromProfile=async(rentalId,customerId)=>{
+ if(!confirm('Confirm that this equipment has been picked up by the customer?'))return;
+ const rental=adminRentals.find(x=>x.id===rentalId);
+ if(rental && rental.status!=='confirmed')return msg('Only a confirmed rental can be marked Picked Up.');
+ const {error}=await db.from('rental_requests').update({status:'active'}).eq('id',rentalId).eq('status','confirmed');
+ if(error)return msg(error.message);
+ msg('Rental marked Picked Up / Active.');
+ await loadAdmin();
+ openCustomerProfile(customerId);
+};
+window.markRentalReturnedFromProfile=async(rentalId,customerId)=>{
+ if(!confirm('Confirm that this equipment has been returned?'))return;
+ const {error}=await db.from('rental_requests').update({status:'completed'}).eq('id',rentalId).eq('status','active');
+ if(error)return msg(error.message);
+ msg('Rental marked Returned / Completed.');
+ await loadAdmin();
+ openCustomerProfile(customerId);
 };
 
 window.verifyCustomerIdentity=async id=>{
@@ -882,3 +902,5 @@ boot();
 
 (function(){if(document.getElementById('nexusEquipmentEditStyles'))return;const s=document.createElement('style');s.id='nexusEquipmentEditStyles';s.textContent=`
 .equipment-edit-modal{position:fixed;inset:0;z-index:100500;background:rgba(0,0,0,.92);display:flex;align-items:flex-start;justify-content:center;padding:30px 18px;overflow:auto}.equipment-edit-card{position:relative;width:min(850px,100%);padding:28px;background:#0c0c0f;border:1px solid #303038;border-radius:15px;color:#fff;box-shadow:0 30px 100px #000}.equipment-edit-close{position:absolute;right:17px;top:10px;border:0;background:none;color:#fff;font-size:34px;cursor:pointer}.equipment-edit-card h2{margin:5px 0}.equipment-edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:22px}.equipment-edit-grid label{display:flex;flex-direction:column;gap:7px}.equipment-edit-grid label.wide{grid-column:1/-1}.equipment-edit-grid label>span{font-size:9px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#8c8c94}.equipment-edit-grid input,.equipment-edit-grid textarea,.equipment-edit-grid select{box-sizing:border-box;width:100%;padding:12px;border:1px solid #37373e;border-radius:7px;background:#070709;color:#fff;font:inherit}.equipment-edit-grid small{color:#707078}.current-equipment-image{margin-top:17px;padding:12px;border:1px solid #292930;border-radius:9px}.current-equipment-image span{display:block;color:#777;font-size:9px;text-transform:uppercase;margin-bottom:8px}.current-equipment-image img{display:block;max-width:220px;max-height:140px;object-fit:cover;border-radius:6px}.equipment-edit-actions{display:flex;gap:10px;margin-top:20px}@media(max-width:650px){.equipment-edit-grid{grid-template-columns:1fr}.equipment-edit-grid label.wide{grid-column:auto}.equipment-edit-card{padding:20px}}`;document.head.appendChild(s)})();
+
+(function(){if(document.getElementById('nexusProfileRentalActionStyles'))return;const s=document.createElement('style');s.id='nexusProfileRentalActionStyles';s.textContent=`.profile-rental-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}.profile-rental-actions .small-btn{padding:7px 10px;font-size:9px}`;document.head.appendChild(s)})();
