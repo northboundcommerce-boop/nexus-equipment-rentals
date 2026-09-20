@@ -1,1 +1,0 @@
-export default function handler(req,res){res.status(200).json({ok:true,service:'nexus-contract-signing',build:'2026-09-20.3'});}
