@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nexus Rentals | Management Portal</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header><div class="wrap"><nav>
+<a class="logo" href="/"><i>N</i>EXUS</a>
+<div class="links"><a href="/rentals.html">Equipment</a><a href="/">Nexus Group</a></div>
+<a class="btn ghost" href="/rentals.html">Back to Rentals</a>
+</nav></div></header>
+
+<main class="portal-shell"><div class="wrap">
+<div id="authView">
+  <div class="kicker">Nexus Equipment Rentals</div>
+  <h1 class="portal-title">Rental <span>Portal.</span></h1>
+  <div class="portal-grid">
+    <div class="portal-card">
+      <h2>Sign In</h2><p class="muted">Customers and Nexus administrators.</p>
+      <form id="loginForm">
+        <label>Email</label><input id="loginEmail" type="email" required>
+        <label>Password</label><input id="loginPassword" type="password" required>
+        <button class="btn" type="submit">Sign In</button>
+      </form>
+    </div>
+    <div class="portal-card">
+      <h2>Create Rental Account</h2><p class="muted">New accounts begin in Pending Approval.</p>
+      <form id="signupForm">
+        <label>Full Name</label><input id="signupName" required>
+        <label>Email</label><input id="signupEmail" type="email" required>
+        <label>Password</label><input id="signupPassword" type="password" minlength="8" required>
+        <label>Phone</label><input id="signupPhone" required>
+        <label>Account Type</label><select id="signupType"><option value="individual">Individual</option><option value="business">Business</option></select>
+        <label>Business Name</label><input id="signupBusiness">
+        <button class="btn" type="submit">Create Rental Account</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div id="customerView" class="hidden">
+  <div class="dash-top"><div><div class="kicker">Customer Dashboard</div><h2 class="title">My Nexus Account</h2></div><button class="small-btn" data-signout>Sign Out</button></div>
+  <div class="portal-grid">
+    <div class="portal-card"><h3>Account Status</h3><div id="customerStatus" class="status">Pending</div><div id="profileInfo" class="notice"></div><p class="muted">Approved customers can submit rental requests.</p></div>
+    <div class="portal-card"><h3>Rental Requests</h3><div id="myRentals" class="muted">No requests yet.</div></div>
+  </div>
+  <section class="portal-section"><h2 class="title">Equipment</h2><div id="customerEquipment" class="equipment-list"></div></section>
+</div>
+
+<div id="adminView" class="hidden">
+  <div class="admin-head">
+    <div><div class="kicker">Nexus Management</div><h2 class="title">Rental Command Center</h2></div>
+    <button class="small-btn" data-signout>Sign Out</button>
+  </div>
+
+  <div class="admin-layout">
+    <aside class="admin-sidebar">
+      <button class="admin-tab active" data-tab="overview">Overview</button>
+      <button class="admin-tab" data-tab="customers">Customers <span id="pendingBadge"></span></button>
+      <button class="admin-tab" data-tab="rentals">Rentals <span id="rentalBadge"></span></button>
+      <button class="admin-tab" data-tab="equipment">Equipment</button>
+      <button class="admin-tab" data-tab="calendar">Calendar</button>
+    </aside>
+
+    <div class="admin-content">
+      <section class="admin-panel active" id="tab-overview">
+        <div class="stat-grid">
+          <div class="stat-card"><small>Total Equipment</small><strong id="statEquipment">0</strong></div>
+          <div class="stat-card"><small>Available</small><strong id="statAvailable">0</strong></div>
+          <div class="stat-card"><small>Active Rentals</small><strong id="statActive">0</strong></div>
+          <div class="stat-card"><small>Pending Customers</small><strong id="statPendingCustomers">0</strong></div>
+          <div class="stat-card"><small>Pending Requests</small><strong id="statPendingRentals">0</strong></div>
+          <div class="stat-card"><small>Maintenance</small><strong id="statMaintenance">0</strong></div>
+        </div>
+        <div class="portal-grid admin-gap">
+          <div class="portal-card"><h3>Needs Attention</h3><div id="attentionList" class="muted">Loading…</div></div>
+          <div class="portal-card"><h3>Upcoming Rentals</h3><div id="upcomingList" class="muted">Loading…</div></div>
+        </div>
+      </section>
+
+      <section class="admin-panel" id="tab-customers">
+        <div class="panel-heading"><div><h2>Customers</h2><p class="muted">Review applicants and manage account approval.</p></div><input id="customerSearch" class="admin-search" placeholder="Search customers…"></div>
+        <div id="customerTable" class="admin-table-wrap"></div>
+      </section>
+
+      <section class="admin-panel" id="tab-rentals">
+        <div class="panel-heading"><div><h2>Rental Requests</h2><p class="muted">Approve requests and track the rental lifecycle.</p></div>
+        <select id="rentalFilter" class="admin-search"><option value="all">All statuses</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="active">Active</option><option value="completed">Completed</option><option value="rejected">Rejected</option></select></div>
+        <div id="rentalTable" class="admin-table-wrap"></div>
+      </section>
+
+      <section class="admin-panel" id="tab-equipment">
+        <div class="portal-grid">
+          <div class="portal-card">
+            <h3>Add Equipment</h3>
+            <form id="equipmentForm">
+              <label>Name</label><input id="eqName" required>
+              <label>Category</label><input id="eqCategory">
+              <label>Description</label><textarea id="eqDescription"></textarea>
+              <label>Image URL</label><input id="eqImage" type="url">
+              <div class="form-two"><div><label>Daily Rate</label><input id="eqDaily" type="number" min="0" step=".01"></div><div><label>Weekly Rate</label><input id="eqWeekly" type="number" min="0" step=".01"></div></div>
+              <label>Deposit</label><input id="eqDeposit" type="number" min="0" step=".01">
+              <button class="btn" type="submit">Add Equipment</button>
+            </form>
+          </div>
+          <div class="portal-card"><h3>Fleet Summary</h3><div id="fleetSummary"></div><p class="muted">Use the cards below to change availability, maintenance status, edit rates, or remove equipment.</p></div>
+        </div>
+        <div id="adminEquipment" class="equipment-list admin-gap"></div>
+      </section>
+
+      <section class="admin-panel" id="tab-calendar">
+        <div class="panel-heading"><div><h2>Rental Calendar</h2><p class="muted">Upcoming approved and active rentals by start date.</p></div></div>
+        <div id="calendarList" class="calendar-list"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<div id="portalMsg" class="notice hidden"></div>
+</div></main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/supabase-config.js"></script>
+<script src="/portal.js"></script>
+</body></html>
