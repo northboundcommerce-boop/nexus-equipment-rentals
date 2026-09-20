@@ -651,12 +651,14 @@ window.openRentalContract=async id=>{
  const {data:r,error}=await db.from('rental_requests').select('*').eq('id',id).eq('customer_id',user.id).maybeSingle();
  if(error)return msg(error.message);if(!r)return msg('Rental request not found.');
  if(!['approved','contract_required'].includes(r.status))return msg('This rental is not awaiting a contract.');
- const [{data:p},{data:v},{data:eq},{data:t}]=await Promise.all([
+ const [profileRes,verificationRes,equipmentRes,templateRes]=await Promise.all([
   db.from('profiles').select('*').eq('id',user.id).maybeSingle(),
   db.from('customer_verifications').select('*').eq('user_id',user.id).maybeSingle(),
   db.from('equipment').select('*').eq('id',r.equipment_id).maybeSingle(),
   db.from('contract_templates').select('*').eq('is_active',true).order('created_at',{ascending:false}).limit(1).maybeSingle()
  ]);
+ const p=profileRes.data,v=verificationRes.data,eq=equipmentRes.data,t=templateRes.data;
+ const templateError=templateRes.error;
  const legalName=[v?.legal_first_name,v?.legal_last_name].filter(Boolean).join(' ')||p?.full_name||'';
  const address=[v?.address_line1,v?.city,v?.state,v?.postal_code].filter(Boolean).join(', ');
  let pdfUrl=null;if(t?.storage_path){const sr=await db.storage.from('rental-contract-templates').createSignedUrl(t.storage_path,1800);pdfUrl=sr.data?.signedUrl||null}
@@ -671,7 +673,7 @@ window.openRentalContract=async id=>{
    <div><span>Equipment</span><b>${esc(eq?.name||'Equipment')}</b></div><div><span>Rental Period</span><b>${esc(r.start_date)} → ${esc(r.end_date)}</b></div>
    <div><span>Daily Rate</span><b>${money(eq?.daily_rate)}</b></div><div><span>Weekly Rate</span><b>${money(eq?.weekly_rate)}</b></div><div><span>Deposit</span><b>${money(eq?.deposit)}</b></div>
   </div>
-  ${pdfUrl?`<div class="uploaded-contract-box"><div><b>${esc(t.name)}</b><small>Version ${esc(t.version)}</small></div><a class="small-btn" href="${pdfUrl}" target="_blank" rel="noopener">Open Full PDF Contract</a></div>`:`<div class="contract-warning"><b>No uploaded PDF is active.</b> Nexus should activate a contract in Admin → Contracts before relying on this signing flow.</div>`}
+  ${pdfUrl?`<div class="uploaded-contract-box"><div><b>${esc(t.name)}</b><small>Version ${esc(t.version)}</small></div><a class="small-btn" href="${pdfUrl}" target="_blank" rel="noopener">Open Full PDF Contract</a></div>`:`<div class="contract-warning"><b>${templateError?'Contract access error':'No uploaded PDF is active.'}</b> ${templateError?esc(templateError.message):'Nexus should activate a contract in Admin → Contracts before relying on this signing flow.'}</div>`}
   <div class="contract-terms"><h3>Electronic Signature</h3><p>By signing below, you confirm that you reviewed the rental details and the active rental agreement shown above, and you intend your typed name and submission to serve as your electronic signature.</p></div>
   <label class="contract-check"><input id="contractAccept" type="checkbox"> I reviewed the rental information and contract and agree to sign electronically.</label>
   <label>Electronic Signature<input id="contractSignature" class="contract-input" type="text" value="${esc(legalName)}" placeholder="Type your full legal name"></label>
