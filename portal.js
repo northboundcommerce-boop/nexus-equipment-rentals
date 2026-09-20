@@ -437,6 +437,87 @@ window.setCustomer=async(id,status)=>{
 };
 
 
+
+window.openCustomerProfile=async id=>{
+ const c=adminCustomers.find(x=>x.id===id);
+ if(!c)return msg('Customer not found.');
+
+ let verification=null, rentals=[];
+ try{
+  const vr=await db.from('customer_verifications').select('*').eq('user_id',id).maybeSingle();
+  if(vr.error && vr.error.code!=='PGRST116')console.warn(vr.error);
+  verification=vr.data||null;
+ }catch(e){console.warn(e)}
+ try{
+  const rr=await db.from('rental_requests').select('*').eq('customer_id',id).order('created_at',{ascending:false});
+  rentals=rr.data||[];
+ }catch(e){console.warn(e)}
+
+ const equipmentMap=Object.fromEntries((adminEquipment||[]).map(e=>[e.id,e]));
+ const signed=async path=>{
+  if(!path)return null;
+  try{
+   const {data,error}=await db.storage.from('customer-verification-documents').createSignedUrl(path,600);
+   return error?null:data?.signedUrl;
+  }catch(e){return null}
+ };
+ const [frontUrl,backUrl]=await Promise.all([signed(verification?.license_front_path),signed(verification?.license_back_path)]);
+
+ let modal=document.getElementById('customerProfileModal');
+ if(!modal){modal=document.createElement('div');modal.id='customerProfileModal';document.body.appendChild(modal)}
+ const status=c.approval_status||'pending';
+ const verified=verification?.status||'not_submitted';
+ modal.className='customer-profile-modal';
+ modal.innerHTML=`<div class="customer-profile-card">
+  <div class="profile-modal-head"><div><p class="nexus-kicker">NEXUS CUSTOMER PROFILE</p><h2>${esc(c.full_name||'Customer')}</h2><p>${esc(c.email||'')}</p></div><button class="profile-modal-close" onclick="document.getElementById('customerProfileModal').remove()">×</button></div>
+  <div class="profile-status-row"><span>Account: <b>${esc(status.replaceAll('_',' '))}</b></span><span>Identity: <b>${esc(verified.replaceAll('_',' '))}</b></span></div>
+
+  <div class="profile-modal-grid">
+   <section><h3>Account Information</h3>
+    <div class="profile-field"><small>Full Name</small><b>${esc(c.full_name||'—')}</b></div>
+    <div class="profile-field"><small>Email</small><b>${esc(c.email||'—')}</b></div>
+    <div class="profile-field"><small>Phone</small><b>${esc(c.phone||'—')}</b></div>
+    <div class="profile-field"><small>Account Type</small><b>${esc(c.account_type||'individual')}</b></div>
+    <div class="profile-field"><small>Business</small><b>${esc(c.business_name||'—')}</b></div>
+   </section>
+   <section><h3>Identity Verification</h3>
+    <div class="profile-field"><small>Legal Name</small><b>${esc(verification?`${verification.legal_first_name||''} ${verification.legal_last_name||''}`.trim()||'—':'Not submitted')}</b></div>
+    <div class="profile-field"><small>Address</small><b>${esc(verification?[verification.address_line1,verification.city,verification.state,verification.postal_code].filter(Boolean).join(', ')||'—':'—')}</b></div>
+    <div class="profile-field"><small>Driver License</small><b>${esc(verification?.license_number||'—')} ${verification?.license_state?`(${esc(verification.license_state)})`:''}</b></div>
+    <div class="profile-field"><small>License Expiration</small><b>${esc(verification?.license_expiration||'—')}</b></div>
+    <div class="profile-field"><small>${esc((verification?.tax_id_type||'Tax ID').toUpperCase())} Last 4</small><b>${esc(verification?.tax_id_last4?`•••• ${verification.tax_id_last4}`:'—')}</b></div>
+    <div class="license-links">${frontUrl?`<a href="${frontUrl}" target="_blank" rel="noopener">View License Front</a>`:''}${backUrl?`<a href="${backUrl}" target="_blank" rel="noopener">View License Back</a>`:''}${!frontUrl&&!backUrl?'<span>No license images available</span>':''}</div>
+   </section>
+  </div>
+
+  ${verification?.admin_notes?`<div class="profile-note"><small>Verification / Admin Note</small><p>${esc(verification.admin_notes)}</p></div>`:''}
+  ${c.more_info_request?`<div class="profile-note warning"><small>More Information Request</small><p>${esc(c.more_info_request)}</p></div>`:''}
+
+  <section class="profile-rentals"><h3>Rental History</h3>
+   ${rentals.length?rentals.map(r=>{const e=equipmentMap[r.equipment_id];return `<div class="profile-rental-row"><div><b>${esc(e?.name||'Equipment')}</b><small>${esc(r.start_date||'—')} → ${esc(r.end_date||'—')}</small></div><span class="status">${esc((r.status||'pending').replaceAll('_',' '))}</span></div>`}).join(''):'<p class="muted">No rental requests yet.</p>'}
+  </section>
+
+  <div class="profile-modal-actions">
+   ${status!=='approved'?`<button class="small-btn red" onclick="setCustomer('${id}','approved');document.getElementById('customerProfileModal')?.remove()">Approve Account</button>`:'<button class="small-btn approved-btn" disabled>✓ Account Approved</button>'}
+   <button class="small-btn" onclick="document.getElementById('customerProfileModal')?.remove();openMoreInfoMessage('${id}')">More Info</button>
+   <button class="small-btn" onclick="document.getElementById('customerProfileModal')?.remove();openCustomerMessage('${id}')">Send Message</button>
+   ${verification?.status!=='verified'?`<button class="small-btn" onclick="verifyCustomerIdentity('${id}')">Verify Identity</button>`:'<button class="small-btn approved-btn" disabled>✓ Identity Verified</button>'}
+  </div>
+ </div>`;
+};
+
+window.verifyCustomerIdentity=async id=>{
+ if(!confirm('Mark this customer identity as verified?'))return;
+ const {data:v,error:findError}=await db.from('customer_verifications').select('id').eq('user_id',id).maybeSingle();
+ if(findError)return msg(findError.message);
+ if(!v?.id)return msg('This customer has not submitted identity verification yet.');
+ const {error}=await db.from('customer_verifications').update({status:'verified',reviewed_at:new Date().toISOString()}).eq('id',v.id);
+ if(error)return msg(error.message);
+ msg('Identity verified.');
+ document.getElementById('customerProfileModal')?.remove();
+ loadAdmin();
+};
+
 window.openMoreInfoMessage=id=>{
  const c=adminCustomers.find(x=>x.id===id);if(!c)return msg('Customer not found.');
  openAdminMessageModal(id,'Request More Information',c.full_name||c.email||'Customer','Tell the customer exactly what Nexus needs before approval...','Send More Info Request','more_info');
@@ -750,3 +831,6 @@ boot();
 
 (function(){if(document.getElementById('nexusAdminMessagingStyles'))return;const s=document.createElement('style');s.id='nexusAdminMessagingStyles';s.textContent=`
 .approved-btn{border-color:#275d40!important;color:#6bdc98!important;background:#0d1c14!important;opacity:1!important}.admin-message-modal{position:fixed;inset:0;z-index:100300;background:rgba(0,0,0,.9);display:flex;align-items:center;justify-content:center;padding:20px}.admin-message-card{position:relative;width:min(620px,100%);padding:28px;background:#0d0d10;border:1px solid #303038;border-radius:14px;color:#fff}.admin-message-close{position:absolute;right:17px;top:10px;border:0;background:none;color:#fff;font-size:32px;cursor:pointer}.admin-message-card textarea{width:100%;box-sizing:border-box;margin:18px 0;padding:13px;border:1px solid #393940;border-radius:8px;background:#070709;color:#fff;font:inherit}.admin-message-actions{display:flex;gap:10px}.customer-admin-message{margin:14px 0 22px;padding:15px 17px;border:1px solid #33333a;border-radius:9px;background:#0c0c0f}.customer-admin-message.attention{border-color:#765521;background:#20180c}.customer-admin-message span{display:block;color:#ed1c24;font-size:10px;font-weight:900;letter-spacing:.1em}.customer-admin-message.attention span{color:#e7b24f}.customer-admin-message p{margin:7px 0 0;color:#ccc;line-height:1.55}`;document.head.appendChild(s)})();
+
+(function(){if(document.getElementById('nexusCustomerProfileStyles'))return;const s=document.createElement('style');s.id='nexusCustomerProfileStyles';s.textContent=`
+.customer-profile-modal{position:fixed;inset:0;z-index:100400;background:rgba(0,0,0,.92);display:flex;align-items:flex-start;justify-content:center;padding:30px 18px;overflow:auto}.customer-profile-card{position:relative;width:min(920px,100%);background:#0c0c0f;border:1px solid #303038;border-radius:16px;color:#fff;padding:28px;box-shadow:0 30px 100px #000}.profile-modal-head{display:flex;justify-content:space-between;gap:20px;border-bottom:1px solid #292930;padding-bottom:18px}.profile-modal-head h2{margin:4px 0;font-size:30px}.profile-modal-head p{margin:0;color:#888}.profile-modal-close{border:0;background:none;color:#fff;font-size:34px;cursor:pointer}.profile-status-row{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0}.profile-status-row span{padding:8px 10px;background:#151519;border:1px solid #2e2e34;border-radius:7px;font-size:11px;text-transform:uppercase}.profile-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.profile-modal-grid section,.profile-rentals{padding:18px;border:1px solid #292930;border-radius:10px;background:#09090b}.profile-modal-grid h3,.profile-rentals h3{margin:0 0 15px}.profile-field{padding:10px 0;border-bottom:1px solid #202025}.profile-field small,.profile-field b{display:block}.profile-field small{color:#777;font-size:9px;text-transform:uppercase;letter-spacing:.08em}.profile-field b{margin-top:4px;font-size:13px}.license-links{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.license-links a{color:#fff;background:#201012;border:1px solid #653037;padding:8px 10px;border-radius:6px;font-size:10px;text-decoration:none}.license-links span{color:#666;font-size:11px}.profile-note{margin-top:14px;padding:14px;border:1px solid #33333a;border-radius:8px;background:#111114}.profile-note.warning{border-color:#725523;background:#1c160c}.profile-note small{color:#888;text-transform:uppercase;font-size:9px}.profile-note p{margin:7px 0 0}.profile-rentals{margin-top:16px}.profile-rental-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #222228}.profile-rental-row:last-child{border-bottom:0}.profile-rental-row b,.profile-rental-row small{display:block}.profile-rental-row small{color:#777;margin-top:3px}.profile-modal-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}@media(max-width:700px){.profile-modal-grid{grid-template-columns:1fr}.customer-profile-card{padding:20px}.profile-modal-head h2{font-size:24px}}`;document.head.appendChild(s)})();
