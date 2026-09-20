@@ -79,7 +79,7 @@ async function loadCustomer(){
  const {data:r,error}=await db.from('rental_requests').select('id,start_date,end_date,status,equipment(name)').eq('customer_id',user.id).order('created_at',{ascending:false});
  if(error){msg(error.message);return}
  $('#myRentals').innerHTML=r?.length?r.map(x=>{
-   const cancellable=['pending','contract_required','confirmed'].includes(x.status);
+   const cancellable=['pending','approved','contract_required','confirmed'].includes(x.status);
    const action=x.status==='contract_required'
      ? `<button class="small-btn red contract-sign-btn" onclick="openRentalContract('${x.id}')">Review & Sign Contract</button>`
      : x.status==='confirmed'
@@ -154,7 +154,7 @@ window.confirmCancelReservation=async id=>{
  const {data:r,error:readError}=await db.from('rental_requests').select('id,status,customer_id,customer_notes').eq('id',id).eq('customer_id',user.id).maybeSingle();
  if(readError)return msg(readError.message);
  if(!r)return msg('Reservation not found.');
- if(!['pending','contract_required','confirmed'].includes(r.status))return msg('This reservation can no longer be cancelled online. Please contact Nexus.');
+ if(!['pending','approved','contract_required','confirmed'].includes(r.status))return msg('This reservation can no longer be cancelled online. Please contact Nexus.');
  const existing=(r.customer_notes||'').trim();
  const cancellationNote=reason?`Cancellation reason: ${reason}`:'Cancelled by customer';
  const {error}=await db.from('rental_requests').update({
@@ -430,7 +430,7 @@ function renderRentals(){
     ${x.status==='contract_required'?`<button class="small-btn" onclick="viewSignedContract('${x.id}')">Contract Pending</button>`:''}
     ${x.status==='confirmed'?`<button class="small-btn" onclick="viewSignedContract('${x.id}')">View Contract</button><button class="small-btn red" onclick="setRental('${x.id}','active')">Picked Up</button>`:''}
     ${x.status==='active'?`<button class="small-btn" onclick="viewSignedContract('${x.id}')">View Contract</button><button class="small-btn red" onclick="setRental('${x.id}','completed')">Returned</button>`:''}
-    ${['pending','contract_required','confirmed'].includes(x.status)?`<button class="small-btn" onclick="setRental('${x.id}','rejected')">Reject</button>`:''}
+    ${['pending','approved','contract_required','confirmed'].includes(x.status)?`<button class="small-btn" onclick="setRental('${x.id}','rejected')">Reject</button>`:''}
   </div></td>
  </tr>`).join('')}</tbody></table>`;
 }
