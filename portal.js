@@ -75,6 +75,7 @@ async function loadCustomer(){
  renderCustomerApprovalTracker(status);
  renderCustomerAdminMessage(p);
  await loadCustomerChat(user.id);
+ await loadMyPaymentRequests();
  await loadVerification();
 
  await loadCustomerEquipment(status==='approved');
@@ -426,7 +427,7 @@ async function loadAdmin(){
    equipment:equipmentMap[r.equipment_id]||null
  }));
 
- renderStats(); renderCustomers(); renderRentals(); renderEquipment(); renderCalendar();
+ renderStats(); renderCustomers(); renderRentals(); renderEquipment(); renderCalendar(); loadAdminPaymentRequests();
  await loadAdminContracts();
 }
 function renderStats(){
@@ -1208,3 +1209,68 @@ window.openEquipmentDetails=id=>{
 (function(){if(document.getElementById('nexusEquipmentCatalogStyles'))return;const st=document.createElement('style');st.id='nexusEquipmentCatalogStyles';st.textContent=`
 #customerEquipment{display:block!important}.equipment-catalog-shell{margin-top:18px}.catalog-toolbar{display:flex;justify-content:space-between;gap:25px;align-items:end;margin-bottom:22px}.catalog-toolbar h2{font-size:30px;margin:5px 0}.catalog-toolbar p{color:#9a9aa2;margin:0;max-width:580px}.catalog-kicker,.eq-category{color:#ff2633;font-size:10px;font-weight:900;letter-spacing:.16em;text-transform:uppercase}.catalog-controls{display:flex;gap:10px}.catalog-controls input,.catalog-controls select{height:44px;background:#0c0c0f;border:1px solid #303038;color:#fff;border-radius:8px;padding:0 13px;min-width:190px}.nexus-equipment-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.nexus-eq-card{background:#0d0d10;border:1px solid #2b2b31;border-radius:11px;overflow:hidden;cursor:pointer;transition:.2s}.nexus-eq-card:hover{transform:translateY(-3px);border-color:#5a2428}.nexus-eq-media{height:190px;position:relative;background:#08080a}.nexus-eq-media img{width:100%;height:100%;object-fit:cover}.eq-status{position:absolute;top:12px;left:12px}.nexus-eq-body{padding:17px}.nexus-eq-body h3{font-size:18px;margin:6px 0}.eq-desc{color:#9999a2;font-size:13px;line-height:1.5;min-height:40px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.eq-price-grid{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid #29292e;border-bottom:1px solid #29292e;margin:15px 0}.eq-price-grid div{padding:12px 0}.eq-price-grid div+div{padding-left:15px;border-left:1px solid #29292e}.eq-price-grid small,.eq-detail-rates small{display:block;color:#777;font-size:9px;font-weight:800;letter-spacing:.1em}.eq-price-grid b{display:block;margin-top:3px}.eq-details-btn,.eq-rent-cta{width:100%;border:0;border-radius:6px;background:#f51d2a;color:#fff;font-weight:900;text-transform:uppercase;letter-spacing:.05em;padding:13px;cursor:pointer}.eq-details-btn{display:flex;justify-content:space-between}.eq-photo-placeholder{height:100%;display:grid;place-items:center;color:#555;font-weight:900;letter-spacing:.14em}.eq-detail-overlay{position:fixed;z-index:99999;inset:0;background:rgba(0,0,0,.86);display:flex;align-items:center;justify-content:center;padding:25px}.eq-detail-modal{width:min(1120px,96vw);max-height:92vh;overflow:auto;background:#0b0b0e;border:1px solid #34343b;border-radius:14px;display:grid;grid-template-columns:1.15fr .85fr;position:relative}.eq-modal-close{position:absolute;right:14px;top:14px;z-index:4;width:38px;height:38px;border-radius:50%;border:1px solid #444;background:#0a0a0ccc;color:#fff;font-size:24px;cursor:pointer}.eq-detail-gallery{padding:20px;background:#070709}.eq-main-photo{height:480px;border-radius:10px;overflow:hidden;background:#111}.eq-main-photo img{width:100%;height:100%;object-fit:contain}.eq-thumbs{display:flex;gap:9px;margin-top:10px;overflow:auto}.eq-thumbs button{width:90px;height:65px;padding:0;border:2px solid transparent;border-radius:6px;overflow:hidden;background:#111}.eq-thumbs button.active{border-color:#f51d2a}.eq-thumbs img{width:100%;height:100%;object-fit:cover}.eq-detail-content{padding:35px 28px}.eq-detail-top{display:flex;justify-content:space-between;gap:20px;align-items:start}.eq-detail-top h2{font-size:30px;margin:7px 0 18px}.eq-detail-description{color:#b2b2ba;line-height:1.7}.eq-detail-rates{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:22px 0}.eq-detail-rates div{border:1px solid #303038;border-radius:8px;padding:14px}.eq-detail-rates b{display:block;margin-top:6px;font-size:17px}.eq-info-panel{border-top:1px solid #2b2b31;border-bottom:1px solid #2b2b31;padding:18px 0;margin:20px 0}.eq-info-panel h3{margin:0 0 7px}.eq-info-panel p{margin:0;color:#92929a;line-height:1.5}.eq-unavailable-note{border:1px solid #513034;background:#211012;color:#ff8d94;padding:13px;border-radius:7px}.catalog-empty{grid-column:1/-1;padding:40px;text-align:center;border:1px dashed #333;color:#888;border-radius:10px}
 @media(max-width:950px){.nexus-equipment-grid{grid-template-columns:repeat(2,1fr)}.eq-detail-modal{grid-template-columns:1fr}.eq-main-photo{height:330px}.catalog-toolbar{align-items:stretch;flex-direction:column}.catalog-controls{width:100%}.catalog-controls>*{flex:1}}@media(max-width:620px){.nexus-equipment-grid{grid-template-columns:1fr}.catalog-controls{flex-direction:column}.eq-detail-overlay{padding:8px}.eq-detail-content{padding:24px 16px}.eq-detail-gallery{padding:10px}.eq-main-photo{height:260px}.eq-detail-rates{grid-template-columns:1fr}.catalog-toolbar h2{font-size:24px}}`;document.head.appendChild(st)})();
+
+
+// ===== NEXUS PAYMENT REQUESTS =====
+async function loadMyPaymentRequests(){
+ const {data:{user}}=await db.auth.getUser();if(!user)return;
+ let mount=document.getElementById('customerPayments');
+ if(!mount){
+   mount=document.createElement('section');mount.id='customerPayments';mount.className='nexus-payments-card';
+   const rentals=document.getElementById('myRentals');(rentals?.parentElement||document.getElementById('customerView'))?.appendChild(mount);
+ }
+ const {data:rows,error}=await db.from('payment_requests').select('*').eq('customer_id',user.id).order('created_at',{ascending:false});
+ if(error){mount.innerHTML=`<h2>Payments</h2><p class="muted">${esc(error.message)}</p>`;return}
+ mount.innerHTML=`<div class="payment-head"><div><span class="payment-kicker">NEXUS PAYMENTS</span><h2>Payment Requests</h2></div></div>
+ ${rows?.length?rows.map(x=>`<div class="payment-row"><div><b>${esc(x.title||'Payment Request')}</b><small>${esc(x.note||'')}</small>${x.due_date?`<small>Due ${esc(x.due_date)}</small>`:''}</div><div class="payment-amount">${money(x.amount)}</div><span class="status">${esc(x.status)}</span>${x.status==='pending'?`<button class="small-btn red" onclick="payNexusRequest('${x.id}')">Pay Now</button>`:''}</div>`).join(''):'<p class="muted">No payment requests right now.</p>'}`;
+}
+window.payNexusRequest=async id=>{
+ const btn=event?.currentTarget;if(btn){btn.disabled=true;btn.textContent='Opening secure checkout…'}
+ try{
+  const {data:{session}}=await db.auth.getSession();
+  const res=await fetch('/api/create-payment-checkout',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${session?.access_token||''}`},body:JSON.stringify({payment_request_id:id})});
+  const out=await res.json();if(!res.ok)throw new Error(out.error||'Could not create checkout.');
+  location.href=out.url;
+ }catch(e){msg(e.message);if(btn){btn.disabled=false;btn.textContent='Pay Now'}}
+};
+
+window.openPaymentRequest=async(customerId,rentalId='')=>{
+ const customer=(adminCustomers||[]).find(x=>String(x.id)===String(customerId));
+ const rental=(adminRentals||[]).find(x=>String(x.id)===String(rentalId));
+ const modal=document.createElement('div');modal.className='eq-detail-overlay';modal.id='paymentRequestModal';
+ modal.innerHTML=`<div class="payment-modal"><button class="eq-modal-close" onclick="document.getElementById('paymentRequestModal')?.remove()">×</button><span class="payment-kicker">NEXUS PAYMENTS</span><h2>Send Payment Request</h2><p class="muted">${esc(customer?.full_name||customer?.email||'Customer')}</p>
+ <label>Payment For<select id="payTitle"><option>Rental Deposit</option><option>Rental Balance</option><option>Damage / Fees</option><option>Custom Payment</option></select></label>
+ <label>Amount ($)<input id="payAmount" type="number" min=".50" step=".01" placeholder="1000.00"></label>
+ <label>Due Date<input id="payDue" type="date"></label>
+ <label>Note<textarea id="payNote" maxlength="1000" placeholder="Add payment details for the customer..."></textarea></label>
+ <button class="eq-rent-cta" id="sendPaymentRequestBtn">Create & Send Payment Request</button></div>`;
+ document.body.appendChild(modal);
+ modal.querySelector('#sendPaymentRequestBtn').onclick=async()=>{
+  const amount=Number($('#payAmount').value),title=$('#payTitle').value,note=$('#payNote').value.trim(),due_date=$('#payDue').value||null;
+  if(!amount||amount<.5)return msg('Enter a valid payment amount.');
+  const {data:{user}}=await db.auth.getUser();
+  const {error}=await db.from('payment_requests').insert({customer_id:customerId,rental_request_id:rentalId||null,title,amount,note:note||null,due_date,status:'pending',created_by:user.id});
+  if(error)return msg(error.message);
+  modal.remove();msg('Payment request sent to customer.');loadAdminPaymentRequests();
+ };
+};
+async function loadAdminPaymentRequests(){
+ let mount=document.getElementById('adminPaymentRequests');
+ if(!mount){
+  mount=document.createElement('section');mount.id='adminPaymentRequests';mount.className='nexus-payments-card';
+  const admin=document.getElementById('adminView');admin?.appendChild(mount);
+ }
+ const {data:rows,error}=await db.from('payment_requests').select('*').order('created_at',{ascending:false}).limit(100);
+ if(error){mount.innerHTML='';return}
+ mount.innerHTML=`<span class="payment-kicker">PAYMENT ACTIVITY</span><h2>Payment Requests</h2>${rows?.length?rows.map(x=>{const c=adminCustomers.find(c=>c.id===x.customer_id);return `<div class="payment-row"><div><b>${esc(c?.full_name||c?.email||'Customer')}</b><small>${esc(x.title)}</small></div><div class="payment-amount">${money(x.amount)}</div><span class="status">${esc(x.status)}</span></div>`}).join(''):'<p class="muted">No payment requests yet.</p>'}`;
+}
+document.addEventListener('click',e=>{
+ const b=e.target.closest('[onclick*="openCustomerProfile"]');if(!b)return;
+ setTimeout(()=>{
+   const m=(b.getAttribute('onclick')||'').match(/openCustomerProfile\(['"]([^'"]+)/);if(!m)return;
+   const customerId=m[1];
+   const modal=[...document.querySelectorAll('.modal,.modal-card,.modal-content')].find(x=>x.offsetParent!==null);if(!modal||modal.querySelector('.send-payment-profile'))return;
+   const btn=document.createElement('button');btn.className='small-btn red send-payment-profile';btn.textContent='Send Payment Request';btn.onclick=()=>openPaymentRequest(customerId);modal.appendChild(btn);
+ },400);
+},true);
+(function(){const st=document.createElement('style');st.textContent=`.nexus-payments-card{margin-top:24px;padding:20px;border:1px solid #303038;border-radius:11px;background:#0b0b0e}.payment-kicker{font-size:10px;font-weight:900;letter-spacing:.15em;color:#ff2633}.payment-row{display:grid;grid-template-columns:minmax(180px,1fr) auto auto auto;gap:14px;align-items:center;padding:14px 0;border-top:1px solid #29292f}.payment-row small{display:block;color:#888;margin-top:4px}.payment-amount{font-size:18px;font-weight:900}.payment-modal{width:min(560px,94vw);background:#0c0c0f;border:1px solid #34343a;border-radius:13px;padding:28px;position:relative}.payment-modal label{display:block;margin:14px 0;font-weight:700}.payment-modal input,.payment-modal select,.payment-modal textarea{width:100%;box-sizing:border-box;margin-top:7px;background:#08080a;color:#fff;border:1px solid #34343a;border-radius:7px;padding:12px}.payment-modal textarea{min-height:90px}@media(max-width:650px){.payment-row{grid-template-columns:1fr auto}.payment-row button{grid-column:1/-1}}`;document.head.appendChild(st)})();
