@@ -427,7 +427,7 @@ async function loadAdmin(){
    equipment:equipmentMap[r.equipment_id]||null
  }));
 
- renderStats(); renderCustomers(); renderRentals(); renderEquipment(); renderCalendar(); loadAdminPaymentRequests();
+ renderStats(); renderCustomers(); renderRentals(); renderEquipment(); renderCalendar(); loadAdminPaymentRequests(); ensureAdminPaymentCenter();
  await loadAdminContracts();
 }
 function renderStats(){
@@ -503,6 +503,7 @@ window.openCustomerProfile=async id=>{
  modal.innerHTML=`<div class="customer-profile-card">
   <div class="profile-modal-head"><div><p class="nexus-kicker">NEXUS CUSTOMER PROFILE</p><h2>${esc(c.full_name||'Customer')}</h2><p>${esc(c.email||'')}</p></div><button class="profile-modal-close" onclick="document.getElementById('customerProfileModal').remove()">×</button></div>
   <div class="profile-status-row"><span>Account: <b>${esc(status.replaceAll('_',' '))}</b></span><span>Identity: <b>${esc(verified.replaceAll('_',' '))}</b></span></div>
+  <div id="profilePaymentStatus-${id}" class="profile-payment-status"><span class="payment-kicker">PAYMENT STATUS</span><b>Loading…</b></div>
 
   <div class="profile-modal-grid">
    <section><h3>Account Information</h3>
@@ -540,9 +541,11 @@ window.openCustomerProfile=async id=>{
    ${status!=='approved'?`<button class="small-btn red" onclick="setCustomer('${id}','approved');document.getElementById('customerProfileModal')?.remove()">Approve Account</button>`:'<button class="small-btn approved-btn" disabled>✓ Account Approved</button>'}
    <button class="small-btn" onclick="document.getElementById('customerProfileModal')?.remove();openMoreInfoMessage('${id}')">More Info</button>
    <button class="small-btn" onclick="document.getElementById('customerProfileModal')?.remove();openCustomerMessage('${id}')">Send Message</button>
+   <button class="small-btn red" onclick="openPaymentRequest('${id}')">💳 Send Payment Request</button>
    ${verification?.status!=='verified'?`<button class="small-btn" onclick="verifyCustomerIdentity('${id}')">Verify Identity</button>`:'<button class="small-btn approved-btn" disabled>✓ Identity Verified</button>'}
   </div>
  </div>`;
+ await loadCustomerPaymentStatus(id);
  await loadCustomerContractsForAdmin(id);
 };
 
@@ -1294,3 +1297,85 @@ document.addEventListener('click',e=>{
 (function(){const st=document.createElement('style');st.textContent=`.profile-payment-action{display:flex;align-items:center;justify-content:space-between;gap:18px;margin:22px 0 4px;padding:17px;border:1px solid #4a2529;border-radius:9px;background:linear-gradient(135deg,#160d0f,#0c0c0f)}.profile-payment-action h3{margin:4px 0}.profile-payment-action p{margin:0;color:#8e8e96;font-size:12px}@media(max-width:600px){.profile-payment-action{align-items:stretch;flex-direction:column}.profile-payment-action button{width:100%}}`;document.head.appendChild(st)})();
 
 (function(){const st=document.createElement('style');st.textContent=`.payment-head{display:flex;align-items:center;justify-content:space-between;gap:15px}.payment-badge{display:inline-block;background:#ef202c;color:#fff;font-size:9px;vertical-align:middle;padding:5px 8px;border-radius:999px;margin-left:8px}.payment-received-alert{display:flex;justify-content:space-between;gap:15px;padding:14px 16px;margin:10px 0;border:1px solid #28663b;background:#0c2113;border-radius:8px}.payment-received-alert b{color:#65df89}.payment-received-alert span{color:#b9c7bd;font-size:12px}.paid-status{border-color:#28663b!important;color:#65df89!important}@media(max-width:650px){.payment-head,.payment-received-alert{align-items:stretch;flex-direction:column}}`;document.head.appendChild(st)})();
+
+
+// ===== NEXUS PAYMENT CENTER: deterministic admin UI =====
+function ensureAdminPaymentCenter(){
+ const admin=document.getElementById('adminView');if(!admin)return;
+ let center=document.getElementById('nexusPaymentCenter');
+ if(!center){
+  center=document.createElement('section');center.id='nexusPaymentCenter';center.className='nexus-payments-card payment-center-main';
+  const firstPanel=admin.querySelector('.admin-panel')||admin.firstElementChild;
+  firstPanel?.insertAdjacentElement('afterend',center) || admin.appendChild(center);
+ }
+ refreshPaymentCenter();
+}
+async function refreshPaymentCenter(){
+ const center=document.getElementById('nexusPaymentCenter');if(!center)return;
+ const {data:rows,error}=await db.from('payment_requests').select('*').order('created_at',{ascending:false}).limit(100);
+ if(error){center.innerHTML=`<span class="payment-kicker">NEXUS PAYMENTS</span><h2>Payment Center</h2><div class="payment-system-error"><b>Payment system not connected</b><p>${esc(error.message)}</p></div>`;return}
+ const unread=(rows||[]).filter(x=>x.status==='paid'&&!x.admin_seen_at);
+ const paid=(rows||[]).filter(x=>x.status==='paid');
+ const pending=(rows||[]).filter(x=>x.status==='pending');
+ center.innerHTML=`<div class="payment-center-head"><div><span class="payment-kicker">NEXUS PAYMENTS</span><h2>Payment Center ${unread.length?`<span class="payment-badge">${unread.length} NEW</span>`:''}</h2><p>Stripe-confirmed payments are detected automatically.</p></div><button class="small-btn" onclick="refreshPaymentCenter()">Refresh Payments</button></div>
+ <div class="payment-center-stats"><div><small>PENDING</small><b>${pending.length}</b></div><div><small>PAID</small><b>${paid.length}</b></div><div><small>COLLECTED</small><b>${money(paid.reduce((a,x)=>a+Number(x.amount||0),0))}</b></div></div>
+ ${unread.map(x=>{const c=adminCustomers.find(c=>c.id===x.customer_id);return `<div class="payment-received-alert"><b>✓ PAYMENT RECEIVED — ${money(x.amount)}</b><span>${esc(c?.full_name||c?.email||'Customer')} • ${esc(x.title)}${x.paid_at?' • '+new Date(x.paid_at).toLocaleString():''}</span></div>`}).join('')}
+ <div class="payment-center-list">${rows?.length?rows.map(x=>{const c=adminCustomers.find(c=>c.id===x.customer_id);return `<div class="payment-row"><div><b>${esc(c?.full_name||c?.email||'Customer')}</b><small>${esc(x.title||'Payment Request')}</small></div><div class="payment-amount">${money(x.amount)}</div><span class="status ${x.status==='paid'?'paid-status':''}">${esc(x.status)}</span></div>`}).join(''):'<p class="muted">No payment requests yet. Open a customer profile and click Send Payment Request.</p>'}</div>`;
+}
+window.refreshPaymentCenter=refreshPaymentCenter;
+
+// Run after admin dashboard data has rendered, and poll Stripe-confirmed DB state every 20 sec.
+setInterval(()=>{if(document.getElementById('adminView')&&!document.getElementById('adminView').classList.contains('hidden'))refreshPaymentCenter()},20000);
+(function(){const st=document.createElement('style');st.textContent=`.payment-center-main{margin:22px 0!important}.payment-center-head{display:flex;justify-content:space-between;align-items:center;gap:18px}.payment-center-head h2{margin:5px 0}.payment-center-head p{margin:0;color:#888}.payment-center-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0}.payment-center-stats div{padding:15px;border:1px solid #303038;border-radius:8px;background:#08080a}.payment-center-stats small{display:block;color:#777;font-size:9px;font-weight:900;letter-spacing:.12em}.payment-center-stats b{display:block;margin-top:5px;font-size:20px}.payment-system-error{border:1px solid #6e2c33;background:#241014;padding:15px;border-radius:8px}.payment-system-error b{color:#ff6e77}.payment-system-error p{margin:7px 0 0;color:#bbb}@media(max-width:650px){.payment-center-head{align-items:stretch;flex-direction:column}.payment-center-stats{grid-template-columns:1fr}}`;document.head.appendChild(st)})();
+
+
+// ===== ADMIN PAYMENTS TAB + CUSTOMER PROFILE PAYMENT STATUS =====
+async function loadCustomerPaymentStatus(customerId){
+ const mount=document.getElementById(`profilePaymentStatus-${customerId}`);if(!mount)return;
+ const {data:rows,error}=await db.from('payment_requests').select('*').eq('customer_id',customerId).order('created_at',{ascending:false});
+ if(error){mount.innerHTML=`<span class="payment-kicker">PAYMENT STATUS</span><b class="pay-error">Unable to load</b>`;return}
+ const pending=(rows||[]).filter(x=>x.status==='pending'),paid=(rows||[]).filter(x=>x.status==='paid');
+ const due=pending.reduce((a,x)=>a+Number(x.amount||0),0),collected=paid.reduce((a,x)=>a+Number(x.amount||0),0);
+ const overall=pending.length?'NOT PAID':paid.length?'PAID':'NO PAYMENT REQUEST';
+ mount.className=`profile-payment-status ${pending.length?'not-paid':paid.length?'is-paid':'no-payment'}`;
+ mount.innerHTML=`<div><span class="payment-kicker">PAYMENT STATUS</span><b>${overall}</b></div><div class="profile-pay-money"><span>Amount Due <b>${money(due)}</b></span><span>Paid <b>${money(collected)}</b></span></div>
+ ${rows?.length?`<div class="profile-pay-history">${rows.slice(0,5).map(x=>`<div><span>${esc(x.title)}</span><b>${money(x.amount)}</b><em class="${x.status==='paid'?'paid':'unpaid'}">${x.status==='paid'?'PAID':'NOT PAID'}</em></div>`).join('')}</div>`:''}`;
+}
+
+function installPaymentsAdminTab(){
+ const admin=document.getElementById('adminView');if(!admin||document.getElementById('tab-payments'))return;
+ const tabbar=admin.querySelector('.admin-tabs');
+ if(!tabbar)return;
+ const btn=document.createElement('button');btn.className='admin-tab';btn.dataset.tab='payments';btn.innerHTML=`Payments <span id="paymentsBadge" class="badge"></span>`;
+ tabbar.appendChild(btn);
+ const panel=document.createElement('section');panel.id='tab-payments';panel.className='admin-panel';
+ panel.innerHTML=`<div class="payments-tab-head"><div><p class="nexus-kicker">NEXUS PAYMENTS</p><h2>Payments</h2><p>See who has paid, who still owes, and every payment request.</p></div><button class="small-btn" onclick="renderPaymentsTab()">Refresh</button></div>
+ <div id="paymentsTabStats" class="payment-center-stats"></div>
+ <div class="payments-filters"><button class="pay-filter active" data-pay-filter="all">All</button><button class="pay-filter" data-pay-filter="pending">Not Paid</button><button class="pay-filter" data-pay-filter="paid">Paid</button></div>
+ <div id="paymentsTabTable"></div>`;
+ const panels=admin.querySelectorAll('.admin-panel');(panels[panels.length-1]||tabbar).insertAdjacentElement('afterend',panel);
+ btn.onclick=()=>{$$('.admin-tab').forEach(x=>x.classList.remove('active'));$$('.admin-panel').forEach(x=>x.classList.remove('active'));btn.classList.add('active');panel.classList.add('active');renderPaymentsTab()};
+ panel.querySelectorAll('.pay-filter').forEach(b=>b.onclick=()=>{panel.querySelectorAll('.pay-filter').forEach(x=>x.classList.remove('active'));b.classList.add('active');renderPaymentsTab(b.dataset.payFilter)});
+ renderPaymentsTab();
+}
+window.renderPaymentsTab=async(filter)=>{
+ const mount=document.getElementById('paymentsTabTable');if(!mount)return;
+ if(!filter)filter=document.querySelector('.pay-filter.active')?.dataset.payFilter||'all';
+ const {data:rows,error}=await db.from('payment_requests').select('*').order('created_at',{ascending:false});
+ if(error){mount.innerHTML=`<div class="payment-system-error"><b>Could not load payments</b><p>${esc(error.message)}</p></div>`;return}
+ const pending=(rows||[]).filter(x=>x.status==='pending'),paid=(rows||[]).filter(x=>x.status==='paid');
+ const due=pending.reduce((a,x)=>a+Number(x.amount||0),0),collected=paid.reduce((a,x)=>a+Number(x.amount||0),0);
+ const stats=document.getElementById('paymentsTabStats');if(stats)stats.innerHTML=`<div><small>NOT PAID</small><b>${pending.length}</b></div><div><small>PAID</small><b>${paid.length}</b></div><div><small>OUTSTANDING</small><b>${money(due)}</b></div><div><small>COLLECTED</small><b>${money(collected)}</b></div>`;
+ const badge=document.getElementById('paymentsBadge');if(badge)badge.textContent=pending.length||'';
+ const filtered=(rows||[]).filter(x=>filter==='all'||x.status===filter);
+ mount.innerHTML=filtered.length?`<div class="payments-table-wrap"><table class="admin-table payments-table"><thead><tr><th>Customer</th><th>Payment For</th><th>Amount</th><th>Due</th><th>Status</th><th>Paid</th><th>Actions</th></tr></thead><tbody>${filtered.map(x=>{const c=adminCustomers.find(c=>c.id===x.customer_id);return `<tr><td><b>${esc(c?.full_name||'Customer')}</b><small>${esc(c?.email||'')}</small></td><td>${esc(x.title||'Payment Request')}<small>${esc(x.note||'')}</small></td><td><b>${money(x.amount)}</b></td><td>${esc(x.due_date||'—')}</td><td><span class="pay-table-status ${x.status==='paid'?'paid':'unpaid'}">${x.status==='paid'?'✓ PAID':'NOT PAID'}</span></td><td>${x.paid_at?new Date(x.paid_at).toLocaleString():'—'}</td><td><button class="small-btn" onclick="openCustomerProfile('${x.customer_id}')">View Customer</button></td></tr>`}).join('')}</tbody></table></div>`:'<div class="notice">No payments in this category.</div>';
+};
+
+(function(){
+ const oldLoadAdmin=window.loadAdmin;
+ // loadAdmin is lexical in this app, so install when admin UI becomes visible instead.
+ const observer=new MutationObserver(()=>{const a=document.getElementById('adminView');if(a&&!a.classList.contains('hidden'))installPaymentsAdminTab()});
+ observer.observe(document.documentElement,{subtree:true,attributes:true,attributeFilter:['class']});
+ setTimeout(installPaymentsAdminTab,500);
+ const st=document.createElement('style');st.textContent=`.profile-payment-status{margin:14px 0 20px;padding:15px 17px;border:1px solid #333;border-radius:9px;background:#0b0b0e;display:flex;justify-content:space-between;gap:20px;align-items:center}.profile-payment-status>div:first-child b{display:block;margin-top:5px;font-size:18px}.profile-payment-status.is-paid{border-color:#27663a;background:#0b1c11}.profile-payment-status.is-paid>div:first-child b{color:#65df89}.profile-payment-status.not-paid{border-color:#752c34;background:#211013}.profile-payment-status.not-paid>div:first-child b{color:#ff7079}.profile-pay-money{display:flex;gap:18px}.profile-pay-money span{color:#888;font-size:10px}.profile-pay-money b{display:block;color:#fff;font-size:15px;margin-top:3px}.profile-pay-history{width:100%;border-top:1px solid #333;padding-top:10px}.profile-pay-history>div{display:grid;grid-template-columns:1fr auto auto;gap:10px;padding:6px 0}.profile-pay-history em,.pay-table-status{font-style:normal;font-size:9px;font-weight:900;padding:4px 7px;border-radius:99px}.profile-pay-history .paid,.pay-table-status.paid{color:#65df89;background:#10351c}.profile-pay-history .unpaid,.pay-table-status.unpaid{color:#ff727a;background:#3a1418}.payments-tab-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.payments-tab-head h2{font-size:30px;margin:4px 0}.payments-tab-head p{margin:0;color:#888}.payments-filters{display:flex;gap:8px;margin:18px 0}.pay-filter{background:#101014;color:#aaa;border:1px solid #303038;padding:9px 14px;border-radius:7px;cursor:pointer;font-weight:800}.pay-filter.active{background:#e91e2b;color:#fff;border-color:#e91e2b}.payments-table-wrap{overflow:auto}.payments-table td small{display:block;color:#777;margin-top:4px}.payment-center-stats{grid-template-columns:repeat(4,1fr)!important}@media(max-width:700px){.profile-payment-status,.payments-tab-head{align-items:stretch;flex-direction:column}.profile-pay-money{justify-content:space-between}.payment-center-stats{grid-template-columns:repeat(2,1fr)!important}}`;document.head.appendChild(st);
+})();
