@@ -73,6 +73,7 @@ async function loadCustomer(){
  </div>`;
 
  renderCustomerApprovalTracker(status);
+ renderCustomerAdminMessage(p);
  await loadVerification();
 
  await loadCustomerEquipment(status==='approved');
@@ -94,6 +95,14 @@ async function loadCustomer(){
      </div>
    </div>`;
  }).join(''):'<div class="customer-empty-state">No rental requests yet.</div>';
+}
+
+
+function renderCustomerAdminMessage(profile){
+ let mount=document.getElementById('customerAdminMessage');if(!mount){mount=document.createElement('div');mount.id='customerAdminMessage';const tracker=document.getElementById('customerApprovalTracker');if(tracker)tracker.insertAdjacentElement('afterend',mount);else document.getElementById('profileInfo')?.insertAdjacentElement('afterend',mount)}
+ const more=profile?.approval_status==='more_info'&&profile?.more_info_request;const text=more?profile.more_info_request:profile?.admin_message;
+ if(!text){mount.innerHTML='';return}
+ mount.innerHTML=`<div class="customer-admin-message ${more?'attention':''}"><span>${more?'MORE INFORMATION NEEDED':'MESSAGE FROM NEXUS'}</span><p>${esc(text)}</p></div>`;
 }
 
 function renderCustomerApprovalTracker(status){
@@ -406,11 +415,53 @@ function renderStats(){
 }
 function renderCustomers(){
  const q=($('#customerSearch')?.value||'').toLowerCase();
- const rows=adminCustomers.filter(x=>[x.full_name,x.email,x.business_name,x.phone].some(v=>String(v||'').toLowerCase().includes(q)));
- $('#customerTable').innerHTML=`<table class="admin-table"><thead><tr><th>Customer</th><th>Type</th><th>Status</th><th>Phone</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>`<tr><td><b>${esc(x.full_name||'No name')}</b><small>${esc(x.email||'')}</small>${x.business_name?`<small>${esc(x.business_name)}</small>`:''}</td><td>${esc(x.account_type||'individual')}</td><td><span class="status">${esc(x.approval_status)}</span></td><td>${esc(x.phone||'—')}</td><td><div class="admin-actions"><button class="small-btn red" onclick="setCustomer('${x.id}','approved')">Approve</button><button class="small-btn" onclick="setCustomer('${x.id}','more_info')">More Info</button><button class="small-btn" onclick="setCustomer('${x.id}','rejected')">Reject</button></div></td></tr>`).join('')}</tbody></table>`
+ const rows=adminCustomers.filter(x=>!q||`${x.full_name||''} ${x.email||''} ${x.business_name||''}`.toLowerCase().includes(q));
+ $('#customerTable').innerHTML=`<table class="admin-table"><thead><tr><th>Customer</th><th>Type</th><th>Status</th><th>Phone</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>{
+  const status=x.approval_status||'pending', approved=status==='approved';
+  return `<tr><td><b>${esc(x.full_name||'No name')}</b><small>${esc(x.email||'')}</small>${x.business_name?`<small>${esc(x.business_name)}</small>`:''}</td><td>${esc(x.account_type||'individual')}</td><td><span class="status">${esc(status.replaceAll('_',' '))}</span></td><td>${esc(x.phone||'—')}</td><td><div class="admin-actions">
+   <button class="small-btn" onclick="openCustomerProfile('${x.id}')">View Profile</button>
+   ${!approved?`<button class="small-btn red" onclick="setCustomer('${x.id}','approved')">Approve</button>`:`<button class="small-btn approved-btn" disabled>✓ Approved</button>`}
+   <button class="small-btn" onclick="openMoreInfoMessage('${x.id}')">More Info</button>
+   <button class="small-btn" onclick="openCustomerMessage('${x.id}')">Send Message</button>
+   ${!approved?`<button class="small-btn" onclick="setCustomer('${x.id}','rejected')">Reject</button>`:''}
+  </div></td></tr>`}).join('')}</tbody></table>`
 }
 $('#customerSearch').oninput=renderCustomers;
-window.setCustomer=async(id,status)=>{const {error}=await db.from('profiles').update({approval_status:status}).eq('id',id);if(error)return msg(error.message);msg('Customer status updated.');loadAdmin()};
+window.setCustomer=async(id,status)=>{
+ if(status==='approved'&&!confirm('Approve this customer account?'))return;
+ if(status==='rejected'&&!confirm('Reject this customer account?'))return;
+ const {error}=await db.from('profiles').update({approval_status:status}).eq('id',id);
+ if(error)return msg(error.message);
+ msg(status==='approved'?'Customer approved.':status==='rejected'?'Customer rejected.':'Customer status updated.');
+ loadAdmin();
+};
+
+
+window.openMoreInfoMessage=id=>{
+ const c=adminCustomers.find(x=>x.id===id);if(!c)return msg('Customer not found.');
+ openAdminMessageModal(id,'Request More Information',c.full_name||c.email||'Customer','Tell the customer exactly what Nexus needs before approval...','Send More Info Request','more_info');
+};
+window.openCustomerMessage=id=>{
+ const c=adminCustomers.find(x=>x.id===id);if(!c)return msg('Customer not found.');
+ openAdminMessageModal(id,'Send Customer Message',c.full_name||c.email||'Customer','Write a message for this customer...','Send Message','message');
+};
+function openAdminMessageModal(id,title,subtitle,placeholder,label,mode){
+ let modal=document.getElementById('adminCustomerMessageModal');if(!modal){modal=document.createElement('div');modal.id='adminCustomerMessageModal';document.body.appendChild(modal)}
+ modal.className='admin-message-modal';modal.innerHTML=`<div class="admin-message-card"><button class="admin-message-close" onclick="document.getElementById('adminCustomerMessageModal').remove()">×</button><p class="nexus-kicker">NEXUS ADMIN</p><h2>${esc(title)}</h2><p class="muted">${esc(subtitle)}</p><textarea id="adminCustomerMessageText" rows="6" placeholder="${esc(placeholder)}"></textarea><div class="admin-message-actions"><button class="small-btn red" onclick="submitCustomerMessage('${id}','${mode}')">${esc(label)}</button><button class="small-btn" onclick="document.getElementById('adminCustomerMessageModal').remove()">Cancel</button></div></div>`;
+}
+window.submitCustomerMessage=async(id,mode)=>{
+ const text=$('#adminCustomerMessageText')?.value.trim();if(!text)return msg('Enter a message first.');
+ if(mode==='more_info'){
+  const {error}=await db.from('profiles').update({approval_status:'more_info',more_info_request:text,more_info_requested_at:new Date().toISOString()}).eq('id',id);
+  if(error)return msg(error.message);
+  const {data:v}=await db.from('customer_verifications').select('id').eq('user_id',id).maybeSingle();
+  if(v?.id)await db.from('customer_verifications').update({status:'needs_attention',admin_notes:text}).eq('id',v.id);
+  document.getElementById('adminCustomerMessageModal')?.remove();msg('More information request sent.');return loadAdmin();
+ }
+ const {error}=await db.from('profiles').update({admin_message:text,admin_message_at:new Date().toISOString()}).eq('id',id);
+ if(error)return msg(error.message);
+ document.getElementById('adminCustomerMessageModal')?.remove();msg('Message sent to the customer portal.');loadAdmin();
+};
 
 function renderRentals(){
  const filter=$('#rentalFilter');
@@ -696,3 +747,6 @@ boot();
  `;
  document.head.appendChild(s);
 })();
+
+(function(){if(document.getElementById('nexusAdminMessagingStyles'))return;const s=document.createElement('style');s.id='nexusAdminMessagingStyles';s.textContent=`
+.approved-btn{border-color:#275d40!important;color:#6bdc98!important;background:#0d1c14!important;opacity:1!important}.admin-message-modal{position:fixed;inset:0;z-index:100300;background:rgba(0,0,0,.9);display:flex;align-items:center;justify-content:center;padding:20px}.admin-message-card{position:relative;width:min(620px,100%);padding:28px;background:#0d0d10;border:1px solid #303038;border-radius:14px;color:#fff}.admin-message-close{position:absolute;right:17px;top:10px;border:0;background:none;color:#fff;font-size:32px;cursor:pointer}.admin-message-card textarea{width:100%;box-sizing:border-box;margin:18px 0;padding:13px;border:1px solid #393940;border-radius:8px;background:#070709;color:#fff;font:inherit}.admin-message-actions{display:flex;gap:10px}.customer-admin-message{margin:14px 0 22px;padding:15px 17px;border:1px solid #33333a;border-radius:9px;background:#0c0c0f}.customer-admin-message.attention{border-color:#765521;background:#20180c}.customer-admin-message span{display:block;color:#ed1c24;font-size:10px;font-weight:900;letter-spacing:.1em}.customer-admin-message.attention span{color:#e7b24f}.customer-admin-message p{margin:7px 0 0;color:#ccc;line-height:1.55}`;document.head.appendChild(s)})();
