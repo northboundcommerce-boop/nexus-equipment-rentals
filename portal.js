@@ -70,7 +70,7 @@ async function loadCustomer(){
  $('#profileInfo').innerHTML=`<b>${esc(p?.full_name||user.email)}</b><br>${esc(p?.business_name||'Individual account')}<br>${esc(user.email)}`;
  await loadCustomerEquipment(status==='approved');
  const {data:r}=await db.from('rental_requests').select('id,start_date,end_date,status,equipment(name)').eq('customer_id',user.id).order('created_at',{ascending:false});
- $('#myRentals').innerHTML=r?.length?r.map(x=>`<div class="notice client-rental-row"><div class="client-rental-info"><b>${esc(x.equipment?.name||'Equipment')}</b><br>${x.start_date} → ${x.end_date}<br><span class="status">${esc(x.status)}</span></div>${['pending','approved'].includes(x.status)?`<button class="client-cancel-x" onclick="cancelMyRental('${x.id}','${esc(x.equipment?.name||'Equipment')}')" title="Cancel rental request" aria-label="Cancel rental request">×</button>`:''}</div>`).join(''):'No rental requests yet.'
+ $('#myRentals').innerHTML=r?.length?r.map(x=>`<div class="notice client-rental-row"><div class="client-rental-info"><b>${esc(x.equipment?.name||'Equipment')}</b><br>${x.start_date} → ${x.end_date}<br><span class="status">${esc(x.status)}</span>${x.status==='contract_required'?`<button class="small-btn red contract-sign-btn" onclick="openRentalContract('${x.id}')">Review & Sign Contract</button>`:''}${x.status==='confirmed'?`<small class="contract-signed-note">✓ Contract signed — rental confirmed</small>`:''}</div>${['pending','contract_required','confirmed'].includes(x.status)?`<button class="client-cancel-x" onclick="cancelMyRental('${x.id}','${esc(x.equipment?.name||'Equipment')}')" title="Cancel rental request" aria-label="Cancel rental request">×</button>`:''}</div>`).join(''):'No rental requests yet.'
 }
 
 window.cancelMyRental=async(id,name)=>{
@@ -79,7 +79,7 @@ window.cancelMyRental=async(id,name)=>{
  const {data:r,error:readError}=await db.from('rental_requests').select('id,status,customer_id').eq('id',id).eq('customer_id',user.id).maybeSingle();
  if(readError)return msg(readError.message);
  if(!r)return msg('Rental request not found.');
- if(!['pending','approved'].includes(r.status))return msg('This rental can no longer be cancelled online. Please contact Nexus.');
+ if(!['pending','contract_required','confirmed'].includes(r.status))return msg('This rental can no longer be cancelled online. Please contact Nexus.');
  const {error}=await db.from('rental_requests').update({status:'cancelled'}).eq('id',id).eq('customer_id',user.id);
  if(error)return msg(error.message);
  msg('Rental request cancelled.');
@@ -101,7 +101,7 @@ window.requestRental=async(id,name)=>{
  const {data:bookings,error:bErr}=await db.from('rental_requests')
    .select('start_date,end_date,status')
    .eq('equipment_id',id)
-   .in('status',['approved','active']);
+   .in('status',['contract_required','confirmed','active']);
  if(bErr)return msg(bErr.message);
 
  const blocked=(bookings||[]).map(b=>({start:b.start_date,end:b.end_date,status:b.status}));
@@ -167,7 +167,7 @@ window.requestRental=async(id,name)=>{
    // Re-check the database immediately before submitting to reduce race conditions.
    const {data:freshEq}=await db.from('equipment').select('status,available').eq('id',id).single();
    if(!freshEq||freshEq.status!=='available'||freshEq.available===false)return msg('This equipment is no longer available.');
-   const {data:fresh}=await db.from('rental_requests').select('start_date,end_date,status').eq('equipment_id',id).in('status',['approved','active']);
+   const {data:fresh}=await db.from('rental_requests').select('start_date,end_date,status').eq('equipment_id',id).in('status',['contract_required','confirmed','active']);
    if((fresh||[]).some(b=>startDate<=b.end_date && endDate>=b.start_date))return msg('Those dates were just reserved. Please choose different dates.');
 
    const notes=[
@@ -221,7 +221,7 @@ function renderStats(){
  $('#pendingBadge').textContent=pendingC.length?pendingC.length:'';
  $('#rentalBadge').textContent=pendingR.length?pendingR.length:'';
  $('#attentionList').innerHTML=[...pendingC.slice(0,3).map(x=>`<div class="notice"><b>Customer approval:</b> ${esc(x.full_name||x.email)}</div>`),...pendingR.slice(0,3).map(x=>`<div class="notice"><b>Rental request:</b> ${esc(x.equipment?.name||'Equipment')}</div>`)].join('')||'Nothing urgent right now.';
- const upcoming=adminRentals.filter(x=>['approved','active'].includes(x.status)).sort((a,b)=>a.start_date.localeCompare(b.start_date)).slice(0,5);
+ const upcoming=adminRentals.filter(x=>['contract_required','confirmed','active'].includes(x.status)).sort((a,b)=>a.start_date.localeCompare(b.start_date)).slice(0,5);
  $('#upcomingList').innerHTML=upcoming.length?upcoming.map(x=>`<div class="notice"><b>${esc(x.equipment?.name||'Equipment')}</b><br>${esc(x.profiles?.full_name||x.profiles?.email||'Customer')}<br>${x.start_date} → ${x.end_date}</div>`).join(''):'No upcoming rentals.';
 }
 function renderCustomers(){
@@ -238,24 +238,134 @@ function renderRentals(){
  const rows=adminRentals.filter(x=>f==='all'||x.status===f);
  const table=$('#rentalTable');
  if(!table)return;
- if(!rows.length){
-   table.innerHTML=`<div class="notice">No ${f==='all'?'rental requests':esc(f)+' rental requests'} found.</div>`;
-   return;
- }
+ if(!rows.length){table.innerHTML=`<div class="notice">No ${f==='all'?'rental requests':esc(f)+' rental requests'} found.</div>`;return}
  table.innerHTML=`<table class="admin-table"><thead><tr><th>Customer</th><th>Equipment</th><th>Dates</th><th>Status</th><th>Request Details</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>`<tr>
   <td><b>${esc(x.profiles?.full_name||x.profiles?.email||'Customer')}</b><small>${esc(x.profiles?.email||'')}</small><small>${esc(x.profiles?.phone||'')}</small></td>
   <td><b>${esc(x.equipment?.name||'Equipment')}</b></td>
   <td>${esc(x.start_date||'—')}<br><small>to ${esc(x.end_date||'—')}</small></td>
-  <td><span class="status">${esc(x.status||'pending')}</span></td>
+  <td><span class="status">${esc((x.status||'pending').replaceAll('_',' '))}</span></td>
   <td><small style="white-space:pre-line">${esc(x.customer_notes||'No notes submitted')}</small></td>
   <td><div class="admin-actions">
-    ${x.status==='pending'?`<button class="small-btn red" onclick="setRental('${x.id}','approved')">Approve</button>`:''}
-    ${x.status==='approved'?`<button class="small-btn" onclick="setRental('${x.id}','active')">Picked Up</button>`:''}
-    ${x.status==='active'?`<button class="small-btn" onclick="setRental('${x.id}','completed')">Returned</button>`:''}
-    ${['pending','approved'].includes(x.status)?`<button class="small-btn" onclick="setRental('${x.id}','rejected')">Reject</button>`:''}
+    ${x.status==='pending'?`<button class="small-btn red" onclick="approveRentalForContract('${x.id}')">Approve</button>`:''}
+    ${x.status==='contract_required'?`<button class="small-btn" onclick="viewSignedContract('${x.id}')">Contract Pending</button>`:''}
+    ${x.status==='confirmed'?`<button class="small-btn" onclick="viewSignedContract('${x.id}')">View Contract</button><button class="small-btn red" onclick="setRental('${x.id}','active')">Picked Up</button>`:''}
+    ${x.status==='active'?`<button class="small-btn" onclick="viewSignedContract('${x.id}')">View Contract</button><button class="small-btn red" onclick="setRental('${x.id}','completed')">Returned</button>`:''}
+    ${['pending','contract_required','confirmed'].includes(x.status)?`<button class="small-btn" onclick="setRental('${x.id}','rejected')">Reject</button>`:''}
   </div></td>
  </tr>`).join('')}</tbody></table>`;
 }
+
+window.approveRentalForContract=async id=>{
+ const rental=adminRentals.find(x=>x.id===id);
+ if(!rental)return msg('Rental request not found.');
+ // Reuse DB double-booking protection; contract_required reserves dates too after SQL migration.
+ const {error}=await db.from('rental_requests').update({status:'contract_required'}).eq('id',id);
+ if(error)return msg(error.message);
+ msg('Rental approved. Customer must now sign the contract.');
+ loadAdmin();
+};
+
+window.openRentalContract=async id=>{
+ const {data:{user}}=await db.auth.getUser();
+ const {data:r,error}=await db.from('rental_requests').select('*').eq('id',id).eq('customer_id',user.id).maybeSingle();
+ if(error)return msg(error.message);
+ if(!r)return msg('Rental request not found.');
+ if(r.status!=='contract_required')return msg('This rental is not awaiting a contract.');
+
+ const [{data:p},{data:eq}]=await Promise.all([
+   db.from('profiles').select('*').eq('id',user.id).maybeSingle(),
+   db.from('equipment').select('*').eq('id',r.equipment_id).maybeSingle()
+ ]);
+ let modal=document.getElementById('rentalContractModal');
+ if(!modal){modal=document.createElement('div');modal.id='rentalContractModal';document.body.appendChild(modal)}
+ modal.className='contract-modal';
+ modal.innerHTML=`<div class="contract-card">
+  <button class="contract-close" onclick="document.getElementById('rentalContractModal').remove()">×</button>
+  <p class="nexus-kicker">NEXUS EQUIPMENT RENTALS</p>
+  <h2>Equipment Rental Agreement</h2>
+  <p class="contract-warning"><b>Contract template:</b> Nexus should have its attorney review/replace the legal terms below before relying on this agreement in production.</p>
+
+  <div class="contract-summary">
+   <div><span>Customer</span><b>${esc(p?.full_name||user.email)}</b></div>
+   <div><span>Equipment</span><b>${esc(eq?.name||'Equipment')}</b></div>
+   <div><span>Rental Period</span><b>${esc(r.start_date)} → ${esc(r.end_date)}</b></div>
+   <div><span>Daily Rate</span><b>${money(eq?.daily_rate)}</b></div>
+   <div><span>Weekly Rate</span><b>${money(eq?.weekly_rate)}</b></div>
+   <div><span>Deposit</span><b>${money(eq?.deposit)}</b></div>
+  </div>
+
+  <div class="contract-terms">
+   <h3>Rental Terms</h3>
+   <p>Customer agrees to use the equipment only for lawful and intended purposes, to exercise reasonable care, and to return it by the agreed return date in substantially the same condition, ordinary wear excepted.</p>
+   <p>Customer acknowledges responsibility for charges associated with the rental as shown above and for additional amounts that may lawfully become due under Nexus Equipment Rentals' final approved rental agreement.</p>
+   <p>Customer agrees to promptly notify Nexus Equipment Rentals of damage, loss, theft, malfunction, accident, or any circumstance affecting safe operation of the equipment.</p>
+   <p>Customer confirms that the information provided with the rental request and identity-verification submission is accurate to the best of the customer's knowledge.</p>
+  </div>
+
+  <label class="contract-check"><input id="contractAccept" type="checkbox"> I have reviewed the rental information and agree to the terms shown above.</label>
+  <label>Electronic Signature<input id="contractSignature" class="contract-input" type="text" placeholder="Type your full legal name"></label>
+  <p class="contract-esign">By selecting “Sign & Confirm Rental,” you intend your typed name and submission to serve as your electronic signature for this agreement.</p>
+  <button class="small-btn red contract-submit" onclick="signRentalContract('${id}')">Sign & Confirm Rental</button>
+ </div>`;
+};
+
+window.signRentalContract=async id=>{
+ const accepted=$('#contractAccept')?.checked;
+ const signature=$('#contractSignature')?.value.trim();
+ if(!accepted)return msg('You must agree to the rental terms before signing.');
+ if(!signature)return msg('Type your full legal name as your electronic signature.');
+ const {data:{user}}=await db.auth.getUser();
+ const {data:r,error:re}=await db.from('rental_requests').select('*').eq('id',id).eq('customer_id',user.id).maybeSingle();
+ if(re||!r)return msg(re?.message||'Rental request not found.');
+ if(r.status!=='contract_required')return msg('This contract is no longer available for signing.');
+
+ const {data:p}=await db.from('profiles').select('full_name,email').eq('id',user.id).maybeSingle();
+ const {data:eq}=await db.from('equipment').select('name,daily_rate,weekly_rate,deposit').eq('id',r.equipment_id).maybeSingle();
+ const signedAt=new Date().toISOString();
+ const snapshot={
+   version:'1.0',
+   customer_name:p?.full_name||signature,
+   customer_email:p?.email||user.email,
+   equipment_name:eq?.name||'Equipment',
+   start_date:r.start_date,end_date:r.end_date,
+   daily_rate:eq?.daily_rate??null,weekly_rate:eq?.weekly_rate??null,deposit:eq?.deposit??null,
+   terms_version:'Nexus rental agreement template v1.0'
+ };
+ const {error:ce}=await db.from('rental_contracts').insert({
+   rental_request_id:id,customer_id:user.id,signature_name:signature,signed_at:signedAt,
+   accepted:true,contract_snapshot:snapshot
+ });
+ if(ce)return msg(ce.message);
+ const {error:ue}=await db.from('rental_requests').update({status:'confirmed'}).eq('id',id).eq('customer_id',user.id);
+ if(ue)return msg(ue.message);
+ document.getElementById('rentalContractModal')?.remove();
+ msg('Contract signed. Your rental is confirmed.');
+ loadCustomer();
+};
+
+window.viewSignedContract=async id=>{
+ const rental=adminRentals.find(x=>x.id===id);
+ const {data:c,error}=await db.from('rental_contracts').select('*').eq('rental_request_id',id).maybeSingle();
+ if(error)return msg(error.message);
+ if(!c)return msg('The customer has not signed the contract yet.');
+ const snap=c.contract_snapshot||{};
+ let modal=document.getElementById('signedContractModal');
+ if(!modal){modal=document.createElement('div');modal.id='signedContractModal';document.body.appendChild(modal)}
+ modal.className='contract-modal';
+ modal.innerHTML=`<div class="contract-card">
+  <button class="contract-close" onclick="document.getElementById('signedContractModal').remove()">×</button>
+  <p class="nexus-kicker">SIGNED RENTAL AGREEMENT</p><h2>${esc(snap.equipment_name||rental?.equipment?.name||'Equipment')}</h2>
+  <div class="contract-summary">
+   <div><span>Customer</span><b>${esc(snap.customer_name||rental?.profiles?.full_name||'Customer')}</b></div>
+   <div><span>Email</span><b>${esc(snap.customer_email||rental?.profiles?.email||'')}</b></div>
+   <div><span>Rental Period</span><b>${esc(snap.start_date||rental?.start_date||'')} → ${esc(snap.end_date||rental?.end_date||'')}</b></div>
+   <div><span>Signed</span><b>${new Date(c.signed_at).toLocaleString()}</b></div>
+  </div>
+  <div class="signed-signature"><span>ELECTRONIC SIGNATURE</span><strong>${esc(c.signature_name)}</strong></div>
+  <p class="muted">Agreement version: ${esc(snap.terms_version||c.contract_version||'1.0')}</p>
+ </div>`;
+};
+
 $('#rentalFilter').onchange=renderRentals;
 window.setRental=async(id,status)=>{const {error}=await db.from('rental_requests').update({status}).eq('id',id);if(error)return msg(error.message);msg('Rental updated.');loadAdmin()};
 
@@ -315,7 +425,7 @@ $('#equipmentForm').onsubmit=async e=>{
 };
 
 function renderCalendar(){
- const rows=adminRentals.filter(x=>['approved','active'].includes(x.status)).sort((a,b)=>a.start_date.localeCompare(b.start_date));
+ const rows=adminRentals.filter(x=>['contract_required','confirmed','active'].includes(x.status)).sort((a,b)=>a.start_date.localeCompare(b.start_date));
  $('#calendarList').innerHTML=rows.length?rows.map(x=>`<div class="calendar-row"><div class="calendar-date"><b>${new Date(x.start_date+'T12:00:00').toLocaleDateString(undefined,{month:'short',day:'numeric'})}</b><small>${new Date(x.start_date+'T12:00:00').toLocaleDateString(undefined,{weekday:'short'})}</small></div><div><b>${esc(x.equipment?.name||'Equipment')}</b><p>${esc(x.profiles?.full_name||x.profiles?.email||'Customer')} • through ${x.end_date}</p></div><span class="status">${esc(x.status)}</span></div>`).join(''):'<div class="notice">No approved or active rentals on the calendar.</div>'
 }
 
@@ -351,6 +461,24 @@ boot();
  .client-rental-info{min-width:0}
  .client-cancel-x{flex:0 0 32px;width:32px;height:32px;border:1px solid #6c292e;border-radius:7px;background:#211013;color:#ff656d;font-size:23px;line-height:27px;font-weight:400;cursor:pointer;transition:.18s ease}
  .client-cancel-x:hover{background:#ed1c24;border-color:#ed1c24;color:#fff;transform:scale(1.05)}
+ `;
+ document.head.appendChild(s);
+})();
+
+(function addRentalContractStyles(){
+ if(document.getElementById('nexusContractStyles'))return;
+ const s=document.createElement('style');s.id='nexusContractStyles';
+ s.textContent=`
+ .contract-sign-btn{display:block;margin-top:12px}.contract-signed-note{display:block;margin-top:9px;color:#67dc94}
+ .contract-modal{position:fixed;inset:0;z-index:100100;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:20px}
+ .contract-card{position:relative;width:min(820px,100%);max-height:94vh;overflow:auto;padding:32px;background:#0d0d10;border:1px solid #303038;border-radius:14px;color:#fff;box-shadow:0 30px 100px #000}
+ .contract-close{position:absolute;right:18px;top:12px;background:none;border:0;color:#fff;font-size:34px;cursor:pointer}.contract-card h2{margin:5px 0 18px}
+ .contract-warning{padding:12px 14px;border:1px solid #7a5522;border-radius:8px;background:#241b0d;color:#e9c88b;line-height:1.5}
+ .contract-summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:20px 0}.contract-summary div{padding:13px;border:1px solid #292930;border-radius:8px;background:#08080a}.contract-summary span{display:block;color:#777;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.08em}.contract-summary b{display:block;margin-top:5px}
+ .contract-terms{padding:20px;border:1px solid #292930;border-radius:9px;background:#09090b;line-height:1.65;color:#ccc}.contract-terms h3{margin-top:0;color:#fff}
+ .contract-check{display:flex!important;gap:9px;align-items:flex-start;margin:20px 0;line-height:1.5}.contract-check input{width:auto!important;margin-top:3px!important}.contract-input{display:block;width:100%;box-sizing:border-box;margin-top:7px;padding:13px;border:1px solid #393940;border-radius:7px;background:#070709;color:#fff;font:inherit}
+ .contract-esign{color:#888;font-size:12px;line-height:1.5}.contract-submit{width:100%;padding:14px!important}.signed-signature{margin:20px 0;padding:20px;border:1px solid #4b2a2d;border-radius:9px;background:#160d0f}.signed-signature span{display:block;color:#888;font-size:10px;font-weight:900;letter-spacing:.12em}.signed-signature strong{display:block;margin-top:8px;font-size:26px;font-style:italic}
+ @media(max-width:620px){.contract-summary{grid-template-columns:1fr}.contract-card{padding:25px 15px}}
  `;
  document.head.appendChild(s);
 })();
