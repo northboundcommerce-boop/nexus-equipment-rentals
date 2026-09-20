@@ -1,0 +1,1 @@
+export default function handler(req,res){res.status(200).json({ok:true,service:'nexus-stripe-checkout',build:'2026-09-20.2',configured:{stripe_secret_key:!!process.env.STRIPE_SECRET_KEY,stripe_webhook_secret:!!process.env.STRIPE_WEBHOOK_SECRET,supabase_url:!!process.env.SUPABASE_URL,supabase_service_role_key:!!process.env.SUPABASE_SERVICE_ROLE_KEY}})}
