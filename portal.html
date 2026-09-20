@@ -69,6 +69,7 @@
       <button class="admin-tab" data-tab="rentals">Rentals <span id="rentalBadge"></span></button>
       <button class="admin-tab" data-tab="equipment">Equipment</button>
       <button class="admin-tab" data-tab="calendar">Calendar</button>
+      <button class="admin-tab" data-tab="contracts">Contracts</button>
     </aside>
 
     <div class="admin-content">
@@ -106,12 +107,7 @@
               <label>Name</label><input id="eqName" required>
               <label>Category</label><input id="eqCategory">
               <label>Description</label><textarea id="eqDescription"></textarea>
-              <label>Equipment Photos</label>
-<div class="equipment-upload">
-  <input id="eqImages" type="file" accept="image/jpeg,image/png,image/webp" multiple>
-  <small>Upload up to 8 photos. The first photo will be the cover image.</small>
-  <div id="eqImagePreview" class="eq-upload-preview"></div>
-</div>
+              <label>Image URL</label><input id="eqImage" type="url">
               <div class="form-two"><div><label>Daily Rate</label><input id="eqDaily" type="number" min="0" step=".01"></div><div><label>Weekly Rate</label><input id="eqWeekly" type="number" min="0" step=".01"></div></div>
               <label>Deposit</label><input id="eqDeposit" type="number" min="0" step=".01">
               <button class="btn" type="submit">Add Equipment</button>
@@ -120,6 +116,32 @@
           <div class="portal-card"><h3>Fleet Summary</h3><div id="fleetSummary"></div><p class="muted">Use the cards below to change availability, maintenance status, edit rates, or remove equipment.</p></div>
         </div>
         <div id="adminEquipment" class="equipment-list admin-gap"></div>
+      </section>
+
+
+      <section class="admin-panel" id="tab-contracts">
+        <div class="panel-heading"><div><h2>Rental Contracts</h2><p class="muted">Upload and manage the PDF agreement customers will review before signing.</p></div></div>
+        <div class="portal-grid">
+          <div class="portal-card">
+            <h3>Upload Contract</h3>
+            <form id="contractUploadForm">
+              <label>Contract Name<input id="contractName" required placeholder="Nexus Equipment Rental Agreement"></label>
+              <label>Version<input id="contractVersion" required placeholder="2026.1"></label>
+              <label>PDF Contract<input id="contractFile" type="file" accept="application/pdf" required></label>
+              <label class="check-row"><input id="contractMakeActive" type="checkbox" checked> Make this the active contract</label>
+              <button class="btn primary" type="submit">Upload Contract</button>
+            </form>
+          </div>
+          <div class="portal-card">
+            <h3>Contract System</h3>
+            <p class="muted">Only one contract can be active at a time. New rental agreements use the active version. Old signed rentals keep their original contract version.</p>
+            <div id="activeContractSummary" class="notice">Loading active contract…</div>
+          </div>
+        </div>
+        <div class="portal-card admin-gap">
+          <div class="panel-heading"><div><h3>Contract Library</h3><p class="muted">View, activate, replace, or retire contract versions.</p></div></div>
+          <div id="contractLibrary" class="admin-table-wrap">Loading…</div>
+        </div>
       </section>
 
       <section class="admin-panel" id="tab-calendar">

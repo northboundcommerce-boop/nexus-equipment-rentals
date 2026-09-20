@@ -397,6 +397,7 @@ async function loadAdmin(){
  }));
 
  renderStats(); renderCustomers(); renderRentals(); renderEquipment(); renderCalendar();
+ await loadAdminContracts();
 }
 function renderStats(){
  const pendingC=adminCustomers.filter(x=>x.approval_status==='pending'||x.approval_status==='more_info');
@@ -935,3 +936,60 @@ boot();
 (function(){if(document.getElementById('nexusProfileRentalActionStyles'))return;const s=document.createElement('style');s.id='nexusProfileRentalActionStyles';s.textContent=`.profile-rental-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}.profile-rental-actions .small-btn{padding:7px 10px;font-size:9px}`;document.head.appendChild(s)})();
 
 (function(){if(document.getElementById('nexusPickupReturnStyles'))return;const s=document.createElement('style');s.id='nexusPickupReturnStyles';s.textContent=`.pickup-btn{background:#b5121b!important;color:#fff!important;border-color:#ed1c24!important}.return-btn{background:#fff!important;color:#111!important;border-color:#fff!important;font-weight:900!important}.profile-rental-actions{min-width:220px}`;document.head.appendChild(s)})();
+
+
+let adminContracts=[];
+
+async function loadAdminContracts(){
+ const mount=$('#contractLibrary'); if(!mount)return;
+ const {data,error}=await db.from('contract_templates').select('*').order('created_at',{ascending:false});
+ if(error){mount.innerHTML=`<div class="notice">Contract system needs setup: ${esc(error.message)}</div>`;return}
+ adminContracts=data||[];
+ renderContractLibrary();
+}
+function renderContractLibrary(){
+ const active=adminContracts.find(x=>x.is_active);
+ const summary=$('#activeContractSummary');
+ if(summary)summary.innerHTML=active?`<b>${esc(active.name)}</b><br><small>Version ${esc(active.version)} • Active</small>`:'<b>No active contract.</b><br><small>Upload or activate a PDF before approving new rentals.</small>';
+ const mount=$('#contractLibrary'); if(!mount)return;
+ if(!adminContracts.length){mount.innerHTML='<div class="notice">No contracts uploaded yet.</div>';return}
+ mount.innerHTML=`<table class="admin-table"><thead><tr><th>Contract</th><th>Version</th><th>Status</th><th>Uploaded</th><th>Actions</th></tr></thead><tbody>${adminContracts.map(c=>`<tr>
+ <td><b>${esc(c.name)}</b></td><td>${esc(c.version)}</td><td><span class="status">${c.is_active?'ACTIVE':'INACTIVE'}</span></td><td>${new Date(c.created_at).toLocaleDateString()}</td>
+ <td><div class="admin-actions"><button class="small-btn" onclick="viewContractTemplate('${c.id}')">View PDF</button>${!c.is_active?`<button class="small-btn red" onclick="activateContractTemplate('${c.id}')">Make Active</button>`:''}<button class="small-btn" onclick="retireContractTemplate('${c.id}')">${c.is_active?'Deactivate':'Retire'}</button></div></td>
+ </tr>`).join('')}</tbody></table>`;
+}
+$('#contractUploadForm') && ($('#contractUploadForm').onsubmit=async e=>{
+ e.preventDefault();
+ const file=$('#contractFile')?.files?.[0],name=$('#contractName')?.value.trim(),version=$('#contractVersion')?.value.trim();
+ if(!file||!name||!version)return msg('Enter a name, version, and choose a PDF.');
+ if(file.type!=='application/pdf')return msg('Contract must be a PDF.');
+ if(file.size>15*1024*1024)return msg('PDF must be 15 MB or smaller.');
+ const btn=e.target.querySelector('[type=submit]');btn.disabled=true;btn.textContent='Uploading...';
+ try{
+  const path=`templates/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g,'-')}`;
+  const {error:upErr}=await db.storage.from('rental-contract-templates').upload(path,file,{contentType:'application/pdf',upsert:false});
+  if(upErr)return msg(upErr.message);
+  const makeActive=$('#contractMakeActive')?.checked!==false;
+  if(makeActive)await db.from('contract_templates').update({is_active:false}).eq('is_active',true);
+  const {error}=await db.from('contract_templates').insert({name,version,storage_path:path,is_active:makeActive});
+  if(error){await db.storage.from('rental-contract-templates').remove([path]);return msg(error.message)}
+  e.target.reset();$('#contractMakeActive').checked=true;msg('Contract uploaded successfully.');await loadAdminContracts();
+ }finally{btn.disabled=false;btn.textContent='Upload Contract'}
+});
+window.viewContractTemplate=async id=>{
+ const c=adminContracts.find(x=>x.id===id);if(!c)return msg('Contract not found.');
+ const {data,error}=await db.storage.from('rental-contract-templates').createSignedUrl(c.storage_path,600);
+ if(error)return msg(error.message);window.open(data.signedUrl,'_blank','noopener');
+};
+window.activateContractTemplate=async id=>{
+ if(!confirm('Make this the active rental contract?'))return;
+ const off=await db.from('contract_templates').update({is_active:false}).eq('is_active',true);if(off.error)return msg(off.error.message);
+ const {error}=await db.from('contract_templates').update({is_active:true}).eq('id',id);if(error)return msg(error.message);
+ msg('Active contract updated.');loadAdminContracts();
+};
+window.retireContractTemplate=async id=>{
+ const c=adminContracts.find(x=>x.id===id);if(!c)return;
+ if(!confirm(`${c.is_active?'Deactivate':'Retire'} this contract? Existing signed rental records will not be deleted.`))return;
+ const {error}=await db.from('contract_templates').update({is_active:false}).eq('id',id);if(error)return msg(error.message);
+ msg('Contract updated.');loadAdminContracts();
+};
