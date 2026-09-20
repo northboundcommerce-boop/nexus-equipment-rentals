@@ -1191,9 +1191,16 @@ window.openEquipmentDetails=id=>{
   <p class="eq-detail-description">${esc(x.description||'Contact Nexus Equipment Rentals for additional specifications and operating details.')}</p>
   <div class="eq-detail-rates"><div><small>DAILY RATE</small><b>${money(x.daily_rate)}</b></div><div><small>WEEKLY RATE</small><b>${money(x.weekly_rate)}</b></div><div><small>DEPOSIT</small><b>${money(x.deposit)}</b></div></div>
   <div class="eq-info-panel"><h3>Rental Information</h3><p>Availability is subject to your requested dates and Nexus approval. Submit a rental request to reserve this equipment.</p></div>
-  ${x._approved&&x.status==='available'?`<button class="eq-rent-cta" onclick="document.getElementById('eqDetailModal')?.remove();requestRental('${x.id}',${JSON.stringify(String(x.name))})">Request This Equipment</button>`:`<div class="eq-unavailable-note">${x.status==='available'?'Your account must be approved before requesting equipment.':'This equipment is currently '+esc(x.status)+'.'}</div>`}
+  ${x._approved&&x.status==='available'?`<button type="button" class="eq-rent-cta" data-request-equipment="${esc(x.id)}">Request This Equipment</button>`:`<div class="eq-unavailable-note">${x.status==='available'?'Your account must be approved before requesting equipment.':'This equipment is currently '+esc(x.status)+'.'}</div>`}
   </div></div>`;
  document.body.appendChild(modal);
+ const requestBtn=modal.querySelector('[data-request-equipment]');
+ if(requestBtn){
+   requestBtn.addEventListener('click',()=>{
+     modal.remove();
+     window.requestRental(x.id,x.name);
+   });
+ }
  window.setEquipmentPhoto=i=>{active=i;const img=document.getElementById('eqMainPhoto');if(img)img.src=photos[i];modal.querySelectorAll('.eq-thumbs button').forEach((b,n)=>b.classList.toggle('active',n===i));};
  modal.onclick=e=>{if(e.target===modal)modal.remove()};
 };
