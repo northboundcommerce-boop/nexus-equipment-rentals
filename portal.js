@@ -494,6 +494,8 @@ window.openCustomerProfile=async id=>{
   ${verification?.admin_notes?`<div class="profile-note"><small>Verification / Admin Note</small><p>${esc(verification.admin_notes)}</p></div>`:''}
   ${c.more_info_request?`<div class="profile-note warning"><small>More Information Request</small><p>${esc(c.more_info_request)}</p></div>`:''}
 
+  <section class="profile-contracts"><div class="profile-section-head"><h3>Contracts & Signatures</h3><p class="muted">See whether each agreement was signed and open or download its signature record.</p></div><div id="profileContracts-${id}"><div class="notice">Loading contracts…</div></div></section>
+
   <section class="profile-rentals"><h3>Rental History</h3>
    ${rentals.length?rentals.map(r=>{const e=equipmentMap[r.equipment_id];return `<div class="profile-rental-row"><div><b>${esc(e?.name||'Equipment')}</b><small>${esc(r.start_date||'—')} → ${esc(r.end_date||'—')}</small></div><div class="profile-rental-actions">
  <span class="status">${esc((r.status||'pending').replaceAll('_',' '))}</span>
@@ -510,8 +512,25 @@ window.openCustomerProfile=async id=>{
    ${verification?.status!=='verified'?`<button class="small-btn" onclick="verifyCustomerIdentity('${id}')">Verify Identity</button>`:'<button class="small-btn approved-btn" disabled>✓ Identity Verified</button>'}
   </div>
  </div>`;
+ await loadCustomerContractsForAdmin(id);
 };
 
+
+
+async function loadCustomerContractsForAdmin(customerId){
+ const mount=document.getElementById(`profileContracts-${customerId}`);if(!mount)return;
+ const {data:contracts,error}=await db.from('rental_contracts').select('*').eq('customer_id',customerId).order('signed_at',{ascending:false});
+ if(error){mount.innerHTML=`<div class="notice">Could not load contracts: ${esc(error.message)}</div>`;return}
+ const rentals=(adminRentals||[]).filter(r=>r.customer_id===customerId),byRental=Object.fromEntries((contracts||[]).map(c=>[c.rental_request_id,c]));
+ if(!rentals.length){mount.innerHTML='<div class="notice">No rental contracts yet.</div>';return}
+ mount.innerHTML=rentals.map(r=>{const c=byRental[r.id],eq=(adminEquipment||[]).find(e=>e.id===r.equipment_id),signed=!!(c?.accepted&&c?.signed_at);return `<div class="customer-contract-row"><div class="contract-main"><b>${esc(eq?.name||'Equipment Rental')}</b><small>${esc(r.start_date||'—')} → ${esc(r.end_date||'—')}</small></div><div class="contract-sign-status ${signed?'signed':'unsigned'}">${signed?'✓ SIGNED':'NOT SIGNED'}</div><div class="contract-sign-details">${signed?`<small>Signed by</small><b>${esc(c.signature_name||'Customer')}</b><small>${new Date(c.signed_at).toLocaleString()}</small><small>Version ${esc(c.contract_version||'—')}</small>`:'<small>Waiting for customer signature</small>'}</div><div class="contract-profile-actions">${signed?`<button class="small-btn" onclick="viewSignedContract('${r.id}')">View</button><button class="small-btn" onclick="downloadSignedContractRecord('${r.id}')">Download</button>`:'<button class="small-btn" disabled>Awaiting Signature</button>'}</div></div>`}).join('');
+}
+window.downloadSignedContractRecord=async rentalId=>{
+ const {data:c,error}=await db.from('rental_contracts').select('*').eq('rental_request_id',rentalId).maybeSingle();if(error)return msg(error.message);if(!c)return msg('No signed contract found.');
+ const r=(adminRentals||[]).find(x=>x.id===rentalId),eq=(adminEquipment||[]).find(e=>e.id===r?.equipment_id),customer=(adminCustomers||[]).find(x=>x.id===c.customer_id);
+ const text=['NEXUS EQUIPMENT RENTALS','SIGNED RENTAL CONTRACT RECORD','',`Customer: ${c.signature_name||customer?.full_name||customer?.email||'Customer'}`,`Equipment: ${eq?.name||'Equipment'}`,`Rental Dates: ${r?.start_date||'—'} to ${r?.end_date||'—'}`,`Contract Version: ${c.contract_version||'—'}`,`Accepted: ${c.accepted?'Yes':'No'}`,`Signed At: ${c.signed_at?new Date(c.signed_at).toLocaleString():'—'}`].join('\n');
+ const blob=new Blob([text],{type:'text/plain;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`Nexus-Signed-Contract-${rentalId}.txt`;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+};
 
 window.markRentalPickedUpFromProfile=async(rentalId,customerId)=>{
  const rental=adminRentals.find(x=>x.id===rentalId);
@@ -993,3 +1012,5 @@ window.retireContractTemplate=async id=>{
  const {error}=await db.from('contract_templates').update({is_active:false}).eq('id',id);if(error)return msg(error.message);
  msg('Contract updated.');loadAdminContracts();
 };
+
+(function(){if(document.getElementById('nexusCustomerContractsStyles'))return;const s=document.createElement('style');s.id='nexusCustomerContractsStyles';s.textContent=`.profile-contracts{margin-top:16px;padding:18px;border:1px solid #292930;border-radius:10px;background:#09090b}.profile-contracts h3{margin:0}.profile-section-head{margin-bottom:14px}.customer-contract-row{display:grid;grid-template-columns:1.35fr auto 1fr auto;gap:14px;align-items:center;padding:14px 0;border-bottom:1px solid #24242a}.customer-contract-row:last-child{border-bottom:0}.contract-main b,.contract-main small,.contract-sign-details b,.contract-sign-details small{display:block}.contract-main small,.contract-sign-details small{color:#777;margin-top:3px}.contract-sign-status{font-size:10px;font-weight:900;letter-spacing:.08em;padding:8px 10px;border-radius:6px;white-space:nowrap}.contract-sign-status.signed{background:#102619;color:#75e5a0;border:1px solid #245b38}.contract-sign-status.unsigned{background:#281114;color:#ff737a;border:1px solid #6d252b}.contract-profile-actions{display:flex;gap:7px}@media(max-width:800px){.customer-contract-row{grid-template-columns:1fr}}`;document.head.appendChild(s)})();
