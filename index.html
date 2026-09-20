@@ -3,58 +3,126 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Nexus Equipment Rentals | Rent. Work. Get It Done.</title>
-<meta name="description" content="Nexus Equipment Rentals provides jobsite-ready equipment with flexible rental terms. Browse equipment, check rates and submit a rental request online.">
+<meta name="description" content="Nexus Equipment Rentals provides jobsite-ready equipment with flexible rental terms. Browse live equipment, create an account and request rental dates online.">
 <link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/homepage-premium.css">
 </head>
-<body>
-<header class="site-header"><div class="wrap nav">
+<body class="premium-home">
+<div class="scroll-progress" id="scrollProgress"></div>
+<header class="site-header premium-header" id="siteHeader"><div class="wrap nav">
 <a class="brand" href="/"><span class="brand-n">N</span><span>NEXUS</span><small>EQUIPMENT RENTALS</small></a>
-<nav><a href="/equipment.html">Equipment</a><a href="#how">How It Works</a><a href="#why">Why Nexus</a><a href="/contact.html">Contact</a></nav>
-<a class="btn compact" href="/portal.html">Customer Portal</a>
+<nav><a href="/equipment.html">Equipment</a><a href="#categories">Categories</a><a href="#how">How It Works</a><a href="#why">Why Nexus</a><a href="/contact.html">Contact</a></nav>
+<a class="btn compact portal-btn" href="/portal.html"><span>Customer Portal</span><b>→</b></a>
 </div></header>
 
 <main>
-<section class="hero">
- <div class="hero-noise"></div>
- <div class="wrap hero-grid">
-  <div class="hero-copy">
-   <div class="eyebrow">NEXUS EQUIPMENT RENTALS</div>
-   <h1>RENT.<br><span>WORK.</span><br>GET IT DONE.</h1>
-   <p>Jobsite-ready equipment. Straightforward rental requests. One dedicated rental company built to keep projects moving.</p>
-   <div class="actions"><a class="btn" href="/equipment.html">Browse Equipment</a><a class="btn outline" href="/portal.html">Request a Rental</a></div>
-   <div class="hero-points"><span>QUALITY EQUIPMENT</span><span>FLEXIBLE TERMS</span><span>LOCAL SUPPORT</span></div>
+<section class="nx-hero">
+ <div class="nx-grid-bg"></div><div class="nx-red-glow glow-one"></div><div class="nx-red-glow glow-two"></div>
+ <div class="nx-orbit orbit-one"></div><div class="nx-orbit orbit-two"></div>
+ <div class="wrap nx-hero-grid">
+  <div class="nx-hero-copy reveal">
+   <div class="nx-live-pill"><span></span> NEXUS EQUIPMENT RENTALS</div>
+   <h1>THE EQUIPMENT.<br><em>THE POWER.</em><br>THE JOB GETS DONE.</h1>
+   <p>Jobsite-ready equipment with a cleaner way to rent. Browse live inventory, choose your dates, get approved and manage the entire rental from your Nexus account.</p>
+   <div class="actions"><a class="btn nx-primary" href="/equipment.html">Browse Equipment <b>→</b></a><a class="btn nx-ghost" href="/portal.html">Open Customer Portal</a></div>
+   <div class="nx-hero-trust"><div><strong>LIVE</strong><span>Fleet availability</span></div><div><strong>FAST</strong><span>Online requests</span></div><div><strong>ONE</strong><span>Rental dashboard</span></div></div>
   </div>
-  <div class="hero-art"><img src="/assets/nexus-equipment-rentals-logo.png" alt="Nexus Equipment Rentals"></div>
+  <div class="nx-hero-visual reveal">
+    <div class="machine-stage">
+      <div class="stage-ring r1"></div><div class="stage-ring r2"></div>
+      <div class="machine-placeholder">
+       <span class="machine-number">N° 01</span>
+       <img src="/assets/nexus-equipment-rentals-logo.png" alt="Nexus Equipment Rentals">
+       <div class="machine-copy"><small>BUILT FOR THE JOBSITE</small><strong>RENT | WORK | GET IT DONE</strong></div>
+      </div>
+      <div class="float-card fc-one"><span>01</span><div><b>Choose Equipment</b><small>Browse live inventory</small></div></div>
+      <div class="float-card fc-two"><span>02</span><div><b>Select Dates</b><small>See rental availability</small></div></div>
+      <div class="float-card fc-three"><span>03</span><div><b>Get Approved</b><small>Track it in your portal</small></div></div>
+    </div>
+  </div>
+ </div>
+ <a href="#featured" class="scroll-cue"><span>SCROLL TO EXPLORE</span><i>↓</i></a>
+</section>
+
+<section class="nx-marquee" aria-hidden="true"><div class="nx-marquee-track">
+ <span>RENT</span><i>◆</i><span>WORK</span><i>◆</i><span>GET IT DONE</span><i>◆</i><span>JOBSITE READY</span><i>◆</i>
+ <span>RENT</span><i>◆</i><span>WORK</span><i>◆</i><span>GET IT DONE</span><i>◆</i><span>JOBSITE READY</span><i>◆</i>
+</div></section>
+
+<section class="section nx-featured" id="featured"><div class="wrap">
+ <div class="section-head reveal"><div><div class="eyebrow">LIVE NEXUS FLEET</div><h2>READY WHEN <span>THE JOB CALLS.</span></h2><p class="section-intro">Current equipment from the Nexus rental system, all in one place.</p></div><a href="/equipment.html" class="nx-arrow-link">EXPLORE THE FULL FLEET <b>↗</b></a></div>
+ <div id="featuredFleet" class="fleet-grid premium-fleet"><div class="loading">Loading current equipment…</div></div>
+</div></section>
+
+<section class="section nx-categories" id="categories"><div class="wrap">
+ <div class="section-head reveal"><div><div class="eyebrow">FIND YOUR MACHINE</div><h2>BUILT FOR <span>REAL WORK.</span></h2></div><p class="section-side-copy">Start with the job. Find the equipment that helps you finish it.</p></div>
+ <div class="category-grid">
+  <a href="/equipment.html" class="category-card reveal"><span class="cat-index">01</span><div class="cat-icon">▰</div><h3>Earthmoving</h3><p>Machines for digging, grading, loading and site preparation.</p><b>Browse equipment →</b></a>
+  <a href="/equipment.html" class="category-card reveal"><span class="cat-index">02</span><div class="cat-icon">◫</div><h3>Compact Equipment</h3><p>Versatile equipment designed for tight spaces and demanding jobs.</p><b>Browse equipment →</b></a>
+  <a href="/equipment.html" class="category-card reveal"><span class="cat-index">03</span><div class="cat-icon">⌁</div><h3>Attachments</h3><p>Expand what your machine can do with the right jobsite attachment.</p><b>Browse equipment →</b></a>
+  <a href="/equipment.html" class="category-card reveal"><span class="cat-index">04</span><div class="cat-icon">▱</div><h3>Trailers & More</h3><p>Support equipment to keep materials, machines and projects moving.</p><b>Browse equipment →</b></a>
+ </div>
+</div></section>
+
+<section class="nx-process" id="how">
+ <div class="wrap">
+  <div class="section-head reveal"><div><div class="eyebrow">A BETTER RENTAL PROCESS</div><h2>FROM REQUEST TO <span>JOBSITE.</span></h2></div><p class="section-side-copy">Your rental progress stays organized inside one Nexus account.</p></div>
+  <div class="process-track reveal">
+   <div class="process-line"></div>
+   <article><span>01</span><div class="process-dot"></div><h3>Browse</h3><p>Find available equipment and view current rates.</p></article>
+   <article><span>02</span><div class="process-dot"></div><h3>Request</h3><p>Create your account and choose the dates you need.</p></article>
+   <article><span>03</span><div class="process-dot"></div><h3>Verify</h3><p>Complete account verification for rental approval.</p></article>
+   <article><span>04</span><div class="process-dot"></div><h3>Approve & Sign</h3><p>Nexus reviews the request and sends the rental agreement.</p></article>
+   <article><span>05</span><div class="process-dot"></div><h3>Get To Work</h3><p>Track your confirmed rental through the customer portal.</p></article>
+  </div>
  </div>
 </section>
 
-<section class="stats"><div class="wrap stat-row"><div><b>01</b><span>Browse Equipment</span></div><div><b>02</b><span>Create Your Account</span></div><div><b>03</b><span>Choose Rental Dates</span></div><div><b>04</b><span>Get Nexus Approval</span></div></div></section>
+<section class="section nx-portal-section">
+ <div class="wrap nx-portal-card reveal">
+  <div class="portal-grid-lines"></div>
+  <div class="portal-copy"><div class="eyebrow">YOUR NEXUS ACCOUNT</div><h2>YOUR RENTALS.<br><span>ONE CLEAN DASHBOARD.</span></h2><p>Track account approval, complete identity verification, request rental dates, sign agreements, view rental status and manage eligible cancellations from one place.</p><a class="btn nx-primary" href="/portal.html">Go To Customer Portal <b>→</b></a></div>
+  <div class="portal-preview">
+   <div class="preview-top"><span>NEXUS / CUSTOMER PORTAL</span><i></i><i></i><i></i></div>
+   <div class="preview-status"><small>ACCOUNT STATUS</small><b>APPROVED</b></div>
+   <div class="preview-progress"><span class="done">1</span><i></i><span class="done">2</span><i></i><span class="done">3</span></div>
+   <div class="preview-labels"><span>Submitted</span><span>Review</span><span>Approved</span></div>
+   <div class="preview-rental"><div><small>ACTIVE RENTAL</small><b>Equipment Reservation</b><span>Manage from your account</span></div><strong>→</strong></div>
+  </div>
+ </div>
+</section>
 
-<section class="section" id="featured"><div class="wrap">
- <div class="section-head"><div><div class="eyebrow">LIVE INVENTORY</div><h2>READY FOR <span>THE NEXT JOB.</span></h2></div><a href="/equipment.html" class="text-link">VIEW ALL EQUIPMENT →</a></div>
- <div id="featuredFleet" class="fleet-grid"><div class="loading">Loading current equipment…</div></div>
-</div></section>
-
-<section class="section dark" id="why"><div class="wrap">
- <div class="section-head"><div><div class="eyebrow">WHY NEXUS</div><h2>BUILT AROUND <span>THE JOBSITE.</span></h2></div></div>
- <div class="feature-grid">
-  <article><i>01</i><h3>Quality Equipment</h3><p>A focused fleet managed directly by Nexus with current availability shown online.</p></article>
-  <article><i>02</i><h3>Flexible Terms</h3><p>Daily and weekly rental options displayed clearly on available equipment.</p></article>
-  <article><i>03</i><h3>Jobsite Ready</h3><p>Rental status is managed from the Nexus administration system before approval.</p></article>
-  <article><i>04</i><h3>Local Support</h3><p>Questions and rental requests go directly to the Nexus rental team.</p></article>
+<section class="section dark nx-why" id="why"><div class="wrap">
+ <div class="section-head reveal"><div><div class="eyebrow">WHY NEXUS</div><h2>LESS FRICTION.<br><span>MORE WORK GETTING DONE.</span></h2></div></div>
+ <div class="why-grid">
+  <article class="reveal"><span>01</span><h3>Live Fleet</h3><p>Browse equipment directly from the Nexus rental inventory instead of guessing what is available.</p></article>
+  <article class="reveal"><span>02</span><h3>Clear Rental Dates</h3><p>Request the dates your project needs with reservation safeguards built into the rental system.</p></article>
+  <article class="reveal"><span>03</span><h3>Organized Approval</h3><p>Account verification, rental review and agreement signing stay connected to your customer profile.</p></article>
+  <article class="reveal"><span>04</span><h3>Customer Control</h3><p>Track rental status and manage eligible reservation cancellations without losing the full rental history.</p></article>
  </div>
 </div></section>
 
-<section class="section process" id="how"><div class="wrap">
- <div class="section-head"><div><div class="eyebrow">HOW IT WORKS</div><h2>FROM SCREEN TO <span>JOBSITE.</span></h2></div></div>
- <div class="process-grid"><article><b>1</b><h3>Find the Machine</h3><p>Search the live Nexus fleet by equipment or category.</p></article><article><b>2</b><h3>Create an Account</h3><p>Set up your rental profile through the secure customer portal.</p></article><article><b>3</b><h3>Request Your Dates</h3><p>Choose the equipment and dates needed for your project.</p></article><article><b>4</b><h3>Nexus Reviews It</h3><p>The rental team reviews availability and your request before confirmation.</p></article></div>
+<section class="nx-final-cta"><div class="cta-glow"></div><div class="wrap nx-final-inner reveal">
+ <div><div class="eyebrow">READY FOR THE NEXT JOB?</div><h2>GET THE MACHINE.<br><span>GET MOVING.</span></h2></div>
+ <div><p>Explore Nexus equipment or sign in to manage your rental account.</p><div class="actions"><a class="btn nx-primary" href="/equipment.html">Find Equipment <b>→</b></a><a class="btn nx-ghost" href="/portal.html">Customer Login</a></div></div>
 </div></section>
-
-<section class="cta"><div class="wrap cta-inner"><div><div class="eyebrow">NEED A MACHINE?</div><h2>LET'S GET TO WORK.</h2><p>Browse the fleet or sign in to start a rental request.</p></div><div class="actions"><a class="btn" href="/equipment.html">Find Equipment</a><a class="btn outline" href="/portal.html">Customer Login</a></div></div></section>
 </main>
 
-<footer><div class="wrap footer"><div><div class="brand"><span class="brand-n">N</span><span>NEXUS</span><small>EQUIPMENT RENTALS</small></div><p>RENT | WORK | GET IT DONE</p></div><div><a href="/equipment.html">Equipment</a><a href="/portal.html">Portal</a><a href="/contact.html">Contact</a></div></div></footer>
+<footer class="premium-footer"><div class="wrap footer">
+ <div><div class="brand"><span class="brand-n">N</span><span>NEXUS</span><small>EQUIPMENT RENTALS</small></div><p>RENT | WORK | GET IT DONE</p></div>
+ <div class="footer-links"><a href="/equipment.html">Equipment</a><a href="/portal.html">Customer Portal</a><a href="/contact.html">Contact</a></div>
+</div><div class="wrap footer-bottom"><span>© <span id="year"></span> Nexus Equipment Rentals</span><span>A NEXUS GROUP COMPANY</span></div></footer>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="/supabase-config.js"></script>
 <script src="/home.js"></script>
+<script>
+(()=>{const header=document.getElementById('siteHeader'),progress=document.getElementById('scrollProgress');
+const update=()=>{const y=scrollY;header?.classList.toggle('scrolled',y>25);const max=document.documentElement.scrollHeight-innerHeight; if(progress)progress.style.width=(max?y/max*100:0)+'%'};
+addEventListener('scroll',update,{passive:true});update();
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('is-visible');io.unobserve(e.target)}}),{threshold:.12});
+document.querySelectorAll('.reveal').forEach((el,i)=>{el.style.setProperty('--delay',Math.min(i%5,4)*70+'ms');io.observe(el)});
+document.getElementById('year').textContent=new Date().getFullYear();
+})();
+</script>
 </body></html>
