@@ -67,25 +67,62 @@ async function loadCustomer(){
  const {data:p}=await db.from('profiles').select('*').eq('id',user.id).maybeSingle();
  const status=p?.approval_status||'pending';
  $('#customerStatus').textContent=status;
- $('#profileInfo').innerHTML=`<b>${esc(p?.full_name||user.email)}</b><br>${esc(p?.business_name||'Individual account')}<br>${esc(user.email)}`;
+ $('#profileInfo').innerHTML=`<div class="customer-account-card">
+   <div class="customer-avatar">${esc((p?.full_name||user.email||'N').charAt(0).toUpperCase())}</div>
+   <div><b>${esc(p?.full_name||user.email)}</b><span>${esc(p?.business_name||'Individual account')}</span><small>${esc(user.email)}</small>${p?.phone?`<small>${esc(p.phone)}</small>`:''}</div>
+ </div>`;
+
+ renderCustomerApprovalTracker(status);
+
  await loadCustomerEquipment(status==='approved');
- const {data:r}=await db.from('rental_requests').select('id,start_date,end_date,status,equipment(name)').eq('customer_id',user.id).order('created_at',{ascending:false});
- $('#myRentals').innerHTML=r?.length?r.map(x=>`<div class="notice client-rental-row"><div class="client-rental-info"><b>${esc(x.equipment?.name||'Equipment')}</b><br>${x.start_date} → ${x.end_date}<br><span class="status">${esc(x.status)}</span>${x.status==='contract_required'?`<button class="small-btn red contract-sign-btn" onclick="openRentalContract('${x.id}')">Review & Sign Contract</button>`:''}${x.status==='confirmed'?`<small class="contract-signed-note">✓ Contract signed — rental confirmed</small>`:''}</div>${['pending','contract_required','confirmed'].includes(x.status)?`<button class="client-cancel-x" onclick="cancelMyRental('${x.id}','${esc(x.equipment?.name||'Equipment')}')" title="Cancel rental request" aria-label="Cancel rental request">×</button>`:''}</div>`).join(''):'No rental requests yet.'
+ const {data:r,error}=await db.from('rental_requests').select('id,start_date,end_date,status,equipment(name)').eq('customer_id',user.id).order('created_at',{ascending:false});
+ if(error){msg(error.message);return}
+ $('#myRentals').innerHTML=r?.length?r.map(x=>{
+   const cancellable=['pending','contract_required','confirmed'].includes(x.status);
+   const action=x.status==='contract_required'
+     ? `<button class="small-btn red contract-sign-btn" onclick="openRentalContract('${x.id}')">Review & Sign Contract</button>`
+     : x.status==='confirmed'
+       ? `<small class="contract-signed-note">✓ Contract signed — rental confirmed</small>`:'';
+   return `<div class="notice client-rental-row">
+     <div class="client-rental-info">
+       <b>${esc(x.equipment?.name||'Equipment')}</b>
+       <span class="client-rental-dates">${esc(x.start_date||'')} → ${esc(x.end_date||'')}</span>
+       <span class="status">${esc((x.status||'pending').replaceAll('_',' '))}</span>
+       ${action}
+     </div>
+     ${cancellable?`<button class="client-cancel-x" onclick="cancelMyRental('${x.id}','${esc(x.equipment?.name||'Equipment')}')" title="Cancel this rental request" aria-label="Cancel rental request">×</button>`:''}
+   </div>`;
+ }).join(''):'<div class="customer-empty-state">No rental requests yet.</div>';
 }
 
-window.cancelMyRental=async(id,name)=>{
- if(!confirm(`Cancel your ${name} rental request?`))return;
- const {data:{user}}=await db.auth.getUser();
- const {data:r,error:readError}=await db.from('rental_requests').select('id,status,customer_id').eq('id',id).eq('customer_id',user.id).maybeSingle();
- if(readError)return msg(readError.message);
- if(!r)return msg('Rental request not found.');
- if(!['pending','contract_required','confirmed'].includes(r.status))return msg('This rental can no longer be cancelled online. Please contact Nexus.');
- const {error}=await db.from('rental_requests').update({status:'cancelled'}).eq('id',id).eq('customer_id',user.id);
- if(error)return msg(error.message);
- msg('Rental request cancelled.');
- await loadCustomer();
-};
-
+function renderCustomerApprovalTracker(status){
+ let mount=document.getElementById('customerApprovalTracker');
+ if(!mount){
+   mount=document.createElement('div');
+   mount.id='customerApprovalTracker';
+   const info=document.getElementById('profileInfo');
+   if(info)info.insertAdjacentElement('afterend',mount); else return;
+ }
+ const normalized=status||'pending';
+ const steps=[
+   {key:'submitted',label:'Account Submitted'},
+   {key:'review',label:'Nexus Review'},
+   {key:'decision',label:normalized==='rejected'?'Rejected':normalized==='more_info'?'More Info Needed':'Approved'}
+ ];
+ let active= normalized==='approved'?3 : ['rejected','more_info'].includes(normalized)?3 : 2;
+ mount.innerHTML=`<div class="approval-tracker ${esc(normalized)}">
+   <div class="approval-tracker-head">
+    <div><span class="tracker-kicker">ACCOUNT APPROVAL</span><h3>${normalized==='approved'?'Your account is approved':normalized==='rejected'?'Application not approved':normalized==='more_info'?'More information is needed':'Your account is being reviewed'}</h3></div>
+    <span class="tracker-status">${esc(normalized.replaceAll('_',' ').toUpperCase())}</span>
+   </div>
+   <div class="tracker-line">
+    ${steps.map((s,i)=>`<div class="tracker-step ${i+1<=active?'done':''} ${i===2&&normalized==='rejected'?'rejected':''} ${i===2&&normalized==='more_info'?'attention':''}">
+      <span class="tracker-dot">${i+1}</span><b>${esc(s.label)}</b>
+    </div>`).join('')}
+   </div>
+   <p class="tracker-copy">${normalized==='approved'?'You can request available equipment and manage your rentals below.':normalized==='rejected'?'Your account was not approved. Contact Nexus if you believe additional information should be reviewed.':normalized==='more_info'?'Nexus needs additional information before your account can be approved. Review the verification section below.':'Nexus is reviewing your account. You can track the decision here.'}</p>
+ </div>`;
+}
 async function loadCustomerEquipment(approved){
  const {data}=await db.from('equipment').select('*').neq('status','inactive').order('created_at',{ascending:false});
  $('#customerEquipment').innerHTML=data?.length?data.map(x=>eqCard(x,false,approved)).join(''):'<div class="equipment-item">No equipment added yet.</div>'
@@ -479,6 +516,18 @@ boot();
  .contract-check{display:flex!important;gap:9px;align-items:flex-start;margin:20px 0;line-height:1.5}.contract-check input{width:auto!important;margin-top:3px!important}.contract-input{display:block;width:100%;box-sizing:border-box;margin-top:7px;padding:13px;border:1px solid #393940;border-radius:7px;background:#070709;color:#fff;font:inherit}
  .contract-esign{color:#888;font-size:12px;line-height:1.5}.contract-submit{width:100%;padding:14px!important}.signed-signature{margin:20px 0;padding:20px;border:1px solid #4b2a2d;border-radius:9px;background:#160d0f}.signed-signature span{display:block;color:#888;font-size:10px;font-weight:900;letter-spacing:.12em}.signed-signature strong{display:block;margin-top:8px;font-size:26px;font-style:italic}
  @media(max-width:620px){.contract-summary{grid-template-columns:1fr}.contract-card{padding:25px 15px}}
+ `;
+ document.head.appendChild(s);
+})();
+
+(function addCleanCustomerDashboardStyles(){
+ if(document.getElementById('nexusCleanCustomerStyles'))return;
+ const s=document.createElement('style');s.id='nexusCleanCustomerStyles';
+ s.textContent=`
+ .customer-account-card{display:flex;align-items:center;gap:14px;padding:4px 0 14px}.customer-avatar{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;background:#ed1c24;color:#fff;font-size:20px;font-weight:900}.customer-account-card b,.customer-account-card span,.customer-account-card small{display:block}.customer-account-card span{margin-top:3px;color:#bbb}.customer-account-card small{margin-top:2px;color:#777}
+ #customerApprovalTracker{margin:16px 0 24px}.approval-tracker{padding:22px;border:1px solid #2c2c32;border-radius:12px;background:linear-gradient(145deg,#111114,#09090b)}.approval-tracker-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}.approval-tracker-head h3{margin:5px 0 0}.tracker-kicker{font-size:10px;font-weight:900;letter-spacing:.15em;color:#ed1c24}.tracker-status{padding:7px 10px;border:1px solid #5f272b;border-radius:999px;color:#ff6b72;font-size:10px;font-weight:900;letter-spacing:.08em}.tracker-line{position:relative;display:grid;grid-template-columns:repeat(3,1fr);margin:25px 0 14px}.tracker-line:before{content:"";position:absolute;top:15px;left:16.5%;right:16.5%;height:2px;background:#2e2e34}.tracker-step{position:relative;z-index:1;text-align:center;color:#777}.tracker-dot{display:grid;place-items:center;width:30px;height:30px;margin:0 auto 8px;border:2px solid #3b3b42;border-radius:50%;background:#111114;color:#777;font-size:11px;font-weight:900}.tracker-step.done{color:#ddd}.tracker-step.done .tracker-dot{border-color:#ed1c24;background:#ed1c24;color:#fff}.tracker-step.rejected .tracker-dot{background:#7d171d;border-color:#ff4c55}.tracker-step.attention .tracker-dot{background:#7b5314;border-color:#d89b32}.tracker-step b{font-size:11px}.tracker-copy{margin:0;color:#999;line-height:1.5}
+ .client-rental-row{position:relative!important;display:flex!important;justify-content:space-between!important;align-items:flex-start!important;gap:16px!important;padding:16px 18px!important}.client-rental-info{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-width:0}.client-rental-dates{color:#aaa;font-size:13px}.client-cancel-x{display:grid!important;place-items:center!important;flex:0 0 36px!important;width:36px!important;height:36px!important;min-width:36px!important;padding:0!important;margin:0!important;border:1px solid #8b2b31!important;border-radius:8px!important;background:#281013!important;color:#ff666e!important;font-size:25px!important;line-height:1!important;font-weight:500!important;cursor:pointer!important;visibility:visible!important;opacity:1!important}.client-cancel-x:hover{background:#ed1c24!important;color:#fff!important;border-color:#ed1c24!important}.customer-empty-state{padding:18px;border:1px dashed #333;border-radius:9px;color:#777}
+ @media(max-width:620px){.approval-tracker-head{flex-direction:column}.tracker-step b{font-size:9px}.client-rental-row{padding:14px!important}}
  `;
  document.head.appendChild(s);
 })();
