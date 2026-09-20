@@ -282,11 +282,35 @@ async function submitVerification(e,existing){
 }
 
 async function loadCustomerEquipment(approved){
- const {data}=await db.from('equipment').select('*').neq('status','inactive').order('created_at',{ascending:false});
- $('#customerEquipment').innerHTML=data?.length?data.map(x=>eqCard(x,false,approved)).join(''):'<div class="equipment-item">No equipment added yet.</div>'
+ const {data,error}=await db.from('equipment').select('*').neq('status','inactive').order('created_at',{ascending:false});
+ if(error){$('#customerEquipment').innerHTML=`<div class="equipment-item">${esc(error.message)}</div>`;return}
+ const equipment=data||[];
+ const ids=equipment.map(x=>x.id);
+ let imageRows=[];
+ if(ids.length){
+   const {data:imgs,error:imgErr}=await db.from('equipment_images').select('*').in('equipment_id',ids).order('sort_order',{ascending:true});
+   if(!imgErr)imageRows=imgs||[];
+ }
+ equipment.forEach(x=>{
+   x.gallery=imageRows.filter(i=>i.equipment_id===x.id);
+   const cover=x.gallery.find(i=>i.is_cover)||x.gallery[0];
+   if(cover?.public_url)x.image_url=cover.public_url;
+   x._approved=approved;
+ });
+ window.customerEquipmentCatalog=equipment;
+ renderCustomerEquipmentCatalog(equipment,approved);
 }
 function eqCard(x,admin=false,approved=false){
- return `<div class="equipment-item">${x.image_url?`<img src="${esc(x.image_url)}" alt="" class="eq-img">`:''}<span class="status">${esc(x.status)}</span><h3>${esc(x.name)}</h3><p class="muted">${esc(x.category||'Equipment')}</p><p>${esc(x.description||'')}</p><div class="rate-row"><b>${money(x.daily_rate)}/day</b><span>${money(x.weekly_rate)}/week</span></div>${admin?`<div class="admin-actions"><button class="small-btn" onclick="editEq('${x.id}')">Edit</button><button class="small-btn" onclick="setEq('${x.id}','available')">Available</button><button class="small-btn" onclick="setEq('${x.id}','maintenance')">Maintenance</button><button class="small-btn red" onclick="removeEq('${x.id}')">Remove</button></div>`:(approved&&x.status==='available'?`<button class="small-btn red" onclick="requestRental('${x.id}','${esc(x.name)}')">Request Rental</button>`:'')}</div>`
+ if(admin){
+  return `<div class="equipment-item">${x.image_url?`<img src="${esc(x.image_url)}" alt="${esc(x.name)}" class="eq-img">`:''}<span class="status">${esc(x.status)}</span><h3>${esc(x.name)}</h3><p class="muted">${esc(x.category||'Equipment')}</p><p>${esc(x.description||'')}</p><div class="rate-row"><b>${money(x.daily_rate)}/day</b><span>${money(x.weekly_rate)}/week</span></div><div class="admin-actions"><button class="small-btn" onclick="editEq('${x.id}')">Edit</button><button class="small-btn" onclick="setEq('${x.id}','available')">Available</button><button class="small-btn" onclick="setEq('${x.id}','maintenance')">Maintenance</button><button class="small-btn red" onclick="removeEq('${x.id}')">Remove</button></div></div>`;
+ }
+ const cover=x.image_url||x.gallery?.[0]?.public_url||'';
+ return `<article class="nexus-eq-card" onclick="openEquipmentDetails('${x.id}')" tabindex="0" onkeydown="if(event.key==='Enter')openEquipmentDetails('${x.id}')">
+   <div class="nexus-eq-media">${cover?`<img src="${esc(cover)}" alt="${esc(x.name)}">`:`<div class="eq-photo-placeholder">NEXUS</div>`}<span class="status eq-status">${esc(x.status)}</span></div>
+   <div class="nexus-eq-body"><p class="eq-category">${esc(x.category||'Equipment')}</p><h3>${esc(x.name)}</h3><p class="eq-desc">${esc(x.description||'View equipment details, specifications, photos and rental information.')}</p>
+   <div class="eq-price-grid"><div><small>DAILY</small><b>${money(x.daily_rate)}</b></div><div><small>WEEKLY</small><b>${money(x.weekly_rate)}</b></div></div>
+   <button type="button" class="eq-details-btn" onclick="event.stopPropagation();openEquipmentDetails('${x.id}')">View Details <span>→</span></button></div>
+ </article>`;
 }
 window.requestRental=async(id,name)=>{
  const {data:eq,error:eqErr}=await db.from('equipment').select('*').eq('id',id).single();
@@ -1137,3 +1161,43 @@ document.addEventListener('click',e=>{
 (function(){if(document.getElementById('nexusChatStyles'))return;const st=document.createElement('style');st.id='nexusChatStyles';st.textContent=`
 .nexus-chat-card,.admin-chat-section{margin-top:22px;padding:16px;border:1px solid #303038;border-radius:10px;background:#0b0b0e}.chat-title{font-size:10px;font-weight:900;letter-spacing:.16em;color:#ff2733;margin-bottom:12px}.chat-thread{max-height:310px;overflow:auto;padding:5px;display:flex;flex-direction:column;gap:10px}.chat-msg{max-width:82%;padding:10px 12px;border-radius:10px;border:1px solid #333;line-height:1.4}.chat-msg.from-admin{align-self:flex-start;background:#17171b}.chat-msg.from-customer{align-self:flex-end;background:#2b1014;border-color:#6c2028}.chat-who{font-size:9px;font-weight:900;letter-spacing:.1em;color:#ff303b;margin-bottom:4px}.chat-msg small{display:block;color:#777;margin-top:6px;font-size:9px}.chat-compose{display:flex;gap:9px;margin-top:12px}.chat-compose textarea{flex:1;min-height:60px;resize:vertical;background:#09090b;color:#fff;border:1px solid #34343a;border-radius:8px;padding:10px}.admin-chat-section{margin:20px}`;
 document.head.appendChild(st)})();
+
+
+function renderCustomerEquipmentCatalog(items,approved){
+ const mount=$('#customerEquipment');if(!mount)return;
+ const categories=[...new Set(items.map(x=>x.category).filter(Boolean))];
+ mount.innerHTML=`<div class="equipment-catalog-shell">
+   <div class="catalog-toolbar"><div><span class="catalog-kicker">NEXUS FLEET</span><h2>Find the right equipment</h2><p>Click any piece of equipment to view photos, details, rates and rental information.</p></div>
+   <div class="catalog-controls"><input id="eqCatalogSearch" type="search" placeholder="Search equipment..."><select id="eqCatalogCategory"><option value="">All equipment</option>${categories.map(c=>`<option>${esc(c)}</option>`).join('')}</select></div></div>
+   <div id="eqCatalogGrid" class="nexus-equipment-grid"></div></div>`;
+ const draw=()=>{
+   const q=($('#eqCatalogSearch')?.value||'').toLowerCase(),cat=$('#eqCatalogCategory')?.value||'';
+   const rows=items.filter(x=>(!cat||x.category===cat)&&(!q||[x.name,x.category,x.description].some(v=>String(v||'').toLowerCase().includes(q))));
+   $('#eqCatalogGrid').innerHTML=rows.length?rows.map(x=>eqCard(x,false,approved)).join(''):'<div class="catalog-empty">No equipment matches your search.</div>';
+ };
+ $('#eqCatalogSearch').oninput=draw;$('#eqCatalogCategory').onchange=draw;draw();
+}
+window.openEquipmentDetails=id=>{
+ const x=(window.customerEquipmentCatalog||[]).find(e=>String(e.id)===String(id));if(!x)return;
+ const gallery=[...(x.gallery||[])].map(i=>i.public_url).filter(Boolean);
+ if(x.image_url&&!gallery.includes(x.image_url))gallery.unshift(x.image_url);
+ let active=0;
+ const modal=document.createElement('div');modal.className='eq-detail-overlay';modal.id='eqDetailModal';
+ const photos=gallery.length?gallery:[''];
+ modal.innerHTML=`<div class="eq-detail-modal"><button class="eq-modal-close" onclick="document.getElementById('eqDetailModal')?.remove()">×</button>
+  <div class="eq-detail-gallery"><div class="eq-main-photo">${photos[0]?`<img id="eqMainPhoto" src="${esc(photos[0])}" alt="${esc(x.name)}">`:`<div class="eq-photo-placeholder large">NEXUS EQUIPMENT RENTALS</div>`}</div>
+  ${gallery.length>1?`<div class="eq-thumbs">${gallery.map((url,i)=>`<button class="${i===0?'active':''}" onclick="setEquipmentPhoto(${i})"><img src="${esc(url)}" alt=""></button>`).join('')}</div>`:''}</div>
+  <div class="eq-detail-content"><div class="eq-detail-top"><div><span class="eq-category">${esc(x.category||'Equipment')}</span><h2>${esc(x.name)}</h2></div><span class="status">${esc(x.status)}</span></div>
+  <p class="eq-detail-description">${esc(x.description||'Contact Nexus Equipment Rentals for additional specifications and operating details.')}</p>
+  <div class="eq-detail-rates"><div><small>DAILY RATE</small><b>${money(x.daily_rate)}</b></div><div><small>WEEKLY RATE</small><b>${money(x.weekly_rate)}</b></div><div><small>DEPOSIT</small><b>${money(x.deposit)}</b></div></div>
+  <div class="eq-info-panel"><h3>Rental Information</h3><p>Availability is subject to your requested dates and Nexus approval. Submit a rental request to reserve this equipment.</p></div>
+  ${x._approved&&x.status==='available'?`<button class="eq-rent-cta" onclick="document.getElementById('eqDetailModal')?.remove();requestRental('${x.id}',${JSON.stringify(String(x.name))})">Request This Equipment</button>`:`<div class="eq-unavailable-note">${x.status==='available'?'Your account must be approved before requesting equipment.':'This equipment is currently '+esc(x.status)+'.'}</div>`}
+  </div></div>`;
+ document.body.appendChild(modal);
+ window.setEquipmentPhoto=i=>{active=i;const img=document.getElementById('eqMainPhoto');if(img)img.src=photos[i];modal.querySelectorAll('.eq-thumbs button').forEach((b,n)=>b.classList.toggle('active',n===i));};
+ modal.onclick=e=>{if(e.target===modal)modal.remove()};
+};
+
+(function(){if(document.getElementById('nexusEquipmentCatalogStyles'))return;const st=document.createElement('style');st.id='nexusEquipmentCatalogStyles';st.textContent=`
+#customerEquipment{display:block!important}.equipment-catalog-shell{margin-top:18px}.catalog-toolbar{display:flex;justify-content:space-between;gap:25px;align-items:end;margin-bottom:22px}.catalog-toolbar h2{font-size:30px;margin:5px 0}.catalog-toolbar p{color:#9a9aa2;margin:0;max-width:580px}.catalog-kicker,.eq-category{color:#ff2633;font-size:10px;font-weight:900;letter-spacing:.16em;text-transform:uppercase}.catalog-controls{display:flex;gap:10px}.catalog-controls input,.catalog-controls select{height:44px;background:#0c0c0f;border:1px solid #303038;color:#fff;border-radius:8px;padding:0 13px;min-width:190px}.nexus-equipment-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.nexus-eq-card{background:#0d0d10;border:1px solid #2b2b31;border-radius:11px;overflow:hidden;cursor:pointer;transition:.2s}.nexus-eq-card:hover{transform:translateY(-3px);border-color:#5a2428}.nexus-eq-media{height:190px;position:relative;background:#08080a}.nexus-eq-media img{width:100%;height:100%;object-fit:cover}.eq-status{position:absolute;top:12px;left:12px}.nexus-eq-body{padding:17px}.nexus-eq-body h3{font-size:18px;margin:6px 0}.eq-desc{color:#9999a2;font-size:13px;line-height:1.5;min-height:40px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.eq-price-grid{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid #29292e;border-bottom:1px solid #29292e;margin:15px 0}.eq-price-grid div{padding:12px 0}.eq-price-grid div+div{padding-left:15px;border-left:1px solid #29292e}.eq-price-grid small,.eq-detail-rates small{display:block;color:#777;font-size:9px;font-weight:800;letter-spacing:.1em}.eq-price-grid b{display:block;margin-top:3px}.eq-details-btn,.eq-rent-cta{width:100%;border:0;border-radius:6px;background:#f51d2a;color:#fff;font-weight:900;text-transform:uppercase;letter-spacing:.05em;padding:13px;cursor:pointer}.eq-details-btn{display:flex;justify-content:space-between}.eq-photo-placeholder{height:100%;display:grid;place-items:center;color:#555;font-weight:900;letter-spacing:.14em}.eq-detail-overlay{position:fixed;z-index:99999;inset:0;background:rgba(0,0,0,.86);display:flex;align-items:center;justify-content:center;padding:25px}.eq-detail-modal{width:min(1120px,96vw);max-height:92vh;overflow:auto;background:#0b0b0e;border:1px solid #34343b;border-radius:14px;display:grid;grid-template-columns:1.15fr .85fr;position:relative}.eq-modal-close{position:absolute;right:14px;top:14px;z-index:4;width:38px;height:38px;border-radius:50%;border:1px solid #444;background:#0a0a0ccc;color:#fff;font-size:24px;cursor:pointer}.eq-detail-gallery{padding:20px;background:#070709}.eq-main-photo{height:480px;border-radius:10px;overflow:hidden;background:#111}.eq-main-photo img{width:100%;height:100%;object-fit:contain}.eq-thumbs{display:flex;gap:9px;margin-top:10px;overflow:auto}.eq-thumbs button{width:90px;height:65px;padding:0;border:2px solid transparent;border-radius:6px;overflow:hidden;background:#111}.eq-thumbs button.active{border-color:#f51d2a}.eq-thumbs img{width:100%;height:100%;object-fit:cover}.eq-detail-content{padding:35px 28px}.eq-detail-top{display:flex;justify-content:space-between;gap:20px;align-items:start}.eq-detail-top h2{font-size:30px;margin:7px 0 18px}.eq-detail-description{color:#b2b2ba;line-height:1.7}.eq-detail-rates{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:22px 0}.eq-detail-rates div{border:1px solid #303038;border-radius:8px;padding:14px}.eq-detail-rates b{display:block;margin-top:6px;font-size:17px}.eq-info-panel{border-top:1px solid #2b2b31;border-bottom:1px solid #2b2b31;padding:18px 0;margin:20px 0}.eq-info-panel h3{margin:0 0 7px}.eq-info-panel p{margin:0;color:#92929a;line-height:1.5}.eq-unavailable-note{border:1px solid #513034;background:#211012;color:#ff8d94;padding:13px;border-radius:7px}.catalog-empty{grid-column:1/-1;padding:40px;text-align:center;border:1px dashed #333;color:#888;border-radius:10px}
+@media(max-width:950px){.nexus-equipment-grid{grid-template-columns:repeat(2,1fr)}.eq-detail-modal{grid-template-columns:1fr}.eq-main-photo{height:330px}.catalog-toolbar{align-items:stretch;flex-direction:column}.catalog-controls{width:100%}.catalog-controls>*{flex:1}}@media(max-width:620px){.nexus-equipment-grid{grid-template-columns:1fr}.catalog-controls{flex-direction:column}.eq-detail-overlay{padding:8px}.eq-detail-content{padding:24px 16px}.eq-detail-gallery{padding:10px}.eq-main-photo{height:260px}.eq-detail-rates{grid-template-columns:1fr}.catalog-toolbar h2{font-size:24px}}`;document.head.appendChild(st)})();
