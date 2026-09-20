@@ -687,7 +687,52 @@ function renderEquipment(){
 }
 window.setEq=async(id,status)=>{const {error}=await db.from('equipment').update({status,available:status==='available'}).eq('id',id);if(error)return msg(error.message);loadAdmin()};
 window.removeEq=async id=>{if(confirm('Remove this equipment?')){const {error}=await db.from('equipment').delete().eq('id',id);if(error)return msg(error.message);loadAdmin()}};
-window.editEq=async id=>{const x=adminEquipment.find(e=>e.id===id);if(!x)return;const name=prompt('Equipment name',x.name);if(name===null)return;const daily=prompt('Daily rate',x.daily_rate??'');if(daily===null)return;const weekly=prompt('Weekly rate',x.weekly_rate??'');if(weekly===null)return;const deposit=prompt('Deposit',x.deposit??'');if(deposit===null)return;const {error}=await db.from('equipment').update({name,daily_rate:daily||null,weekly_rate:weekly||null,deposit:deposit||null}).eq('id',id);if(error)return msg(error.message);msg('Equipment updated.');loadAdmin()};
+window.editEq=async id=>{
+ const x=adminEquipment.find(e=>e.id===id);if(!x)return msg('Equipment not found.');
+ let modal=document.getElementById('editEquipmentModal');if(!modal){modal=document.createElement('div');modal.id='editEquipmentModal';document.body.appendChild(modal)}
+ modal.className='equipment-edit-modal';
+ modal.innerHTML=`<div class="equipment-edit-card">
+  <button class="equipment-edit-close" onclick="document.getElementById('editEquipmentModal').remove()">×</button>
+  <p class="nexus-kicker">NEXUS FLEET ADMIN</p><h2>Edit Equipment</h2><p class="muted">Update the full equipment listing, not just the name.</p>
+  <form id="fullEquipmentEditForm">
+   <div class="equipment-edit-grid">
+    <label><span>Equipment Name</span><input id="editEqName" required value="${esc(x.name||'')}"></label>
+    <label><span>Category</span><input id="editEqCategory" value="${esc(x.category||'')}" placeholder="Skid Steer, Excavator, Trailer..."></label>
+    <label class="wide"><span>Description</span><textarea id="editEqDescription" rows="4" placeholder="Equipment description">${esc(x.description||'')}</textarea></label>
+    <label><span>Daily Rate ($)</span><input id="editEqDaily" type="number" min="0" step="0.01" value="${x.daily_rate??''}"></label>
+    <label><span>Weekly Rate ($)</span><input id="editEqWeekly" type="number" min="0" step="0.01" value="${x.weekly_rate??''}"></label>
+    <label><span>Deposit ($)</span><input id="editEqDeposit" type="number" min="0" step="0.01" value="${x.deposit??''}"></label>
+    <label><span>Quantity</span><input id="editEqQuantity" type="number" min="0" step="1" value="${x.quantity??1}"></label>
+    <label><span>Status</span><select id="editEqStatus"><option value="available">Available</option><option value="rented">Rented</option><option value="maintenance">Maintenance</option><option value="inactive">Inactive</option></select></label>
+    <label class="wide"><span>Cover Image URL</span><input id="editEqImage" value="${esc(x.image_url||'')}" placeholder="https://..."></label>
+    <label class="wide"><span>Upload New Photos</span><input id="editEqPhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple><small>Optional — up to 8 new photos. First uploaded photo becomes the cover image.</small></label>
+   </div>
+   ${x.image_url?`<div class="current-equipment-image"><span>Current Cover</span><img src="${esc(x.image_url)}" alt="${esc(x.name||'Equipment')}"></div>`:''}
+   <div class="equipment-edit-actions"><button class="small-btn red" type="submit">Save All Changes</button><button class="small-btn" type="button" onclick="document.getElementById('editEquipmentModal').remove()">Cancel</button></div>
+  </form>
+ </div>`;
+ $('#editEqStatus').value=x.status||'available';
+ $('#fullEquipmentEditForm').onsubmit=async e=>{
+  e.preventDefault();const btn=e.target.querySelector('[type="submit"]');btn.disabled=true;btn.textContent='Saving...';
+  try{
+   const status=$('#editEqStatus').value;
+   const row={name:$('#editEqName').value.trim(),category:$('#editEqCategory').value.trim()||null,description:$('#editEqDescription').value.trim()||null,daily_rate:$('#editEqDaily').value||null,weekly_rate:$('#editEqWeekly').value||null,deposit:$('#editEqDeposit').value||null,quantity:Number($('#editEqQuantity').value||1),status,available:status==='available',image_url:$('#editEqImage').value.trim()||null};
+   if(!row.name)return msg('Equipment name is required.');
+   const {error}=await db.from('equipment').update(row).eq('id',id);if(error)return msg(error.message);
+   const files=[...($('#editEqPhotos')?.files||[])].slice(0,8);
+   for(let i=0;i<files.length;i++){
+    const file=files[i],ext=(file.name.split('.').pop()||'jpg').toLowerCase(),path=`${id}/${crypto.randomUUID()}.${ext}`;
+    const {error:upErr}=await db.storage.from('equipment-images').upload(path,file,{upsert:false});if(upErr){msg('Changes saved, but a photo failed: '+upErr.message);continue}
+    const {data:urlData}=db.storage.from('equipment-images').getPublicUrl(path),publicUrl=urlData?.publicUrl||null;
+    const {error:imgErr}=await db.from('equipment_images').insert({equipment_id:id,storage_path:path,public_url:publicUrl,sort_order:i,is_cover:i===0});
+    if(imgErr){console.warn(imgErr);continue}
+    if(i===0&&publicUrl){await db.from('equipment_images').update({is_cover:false}).eq('equipment_id',id).neq('storage_path',path);await db.from('equipment').update({image_url:publicUrl}).eq('id',id)}
+   }
+   document.getElementById('editEquipmentModal')?.remove();msg('Equipment updated successfully.');await loadAdmin();
+  }catch(err){console.error(err);msg('Could not update equipment: '+(err?.message||'Unknown error'))}
+  finally{if(btn){btn.disabled=false;btn.textContent='Save All Changes'}}
+ };
+};
 $('#equipmentForm').onsubmit=async e=>{
  e.preventDefault();
  const btn=e.target.querySelector('[type="submit"]');
@@ -834,3 +879,6 @@ boot();
 
 (function(){if(document.getElementById('nexusCustomerProfileStyles'))return;const s=document.createElement('style');s.id='nexusCustomerProfileStyles';s.textContent=`
 .customer-profile-modal{position:fixed;inset:0;z-index:100400;background:rgba(0,0,0,.92);display:flex;align-items:flex-start;justify-content:center;padding:30px 18px;overflow:auto}.customer-profile-card{position:relative;width:min(920px,100%);background:#0c0c0f;border:1px solid #303038;border-radius:16px;color:#fff;padding:28px;box-shadow:0 30px 100px #000}.profile-modal-head{display:flex;justify-content:space-between;gap:20px;border-bottom:1px solid #292930;padding-bottom:18px}.profile-modal-head h2{margin:4px 0;font-size:30px}.profile-modal-head p{margin:0;color:#888}.profile-modal-close{border:0;background:none;color:#fff;font-size:34px;cursor:pointer}.profile-status-row{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0}.profile-status-row span{padding:8px 10px;background:#151519;border:1px solid #2e2e34;border-radius:7px;font-size:11px;text-transform:uppercase}.profile-modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.profile-modal-grid section,.profile-rentals{padding:18px;border:1px solid #292930;border-radius:10px;background:#09090b}.profile-modal-grid h3,.profile-rentals h3{margin:0 0 15px}.profile-field{padding:10px 0;border-bottom:1px solid #202025}.profile-field small,.profile-field b{display:block}.profile-field small{color:#777;font-size:9px;text-transform:uppercase;letter-spacing:.08em}.profile-field b{margin-top:4px;font-size:13px}.license-links{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.license-links a{color:#fff;background:#201012;border:1px solid #653037;padding:8px 10px;border-radius:6px;font-size:10px;text-decoration:none}.license-links span{color:#666;font-size:11px}.profile-note{margin-top:14px;padding:14px;border:1px solid #33333a;border-radius:8px;background:#111114}.profile-note.warning{border-color:#725523;background:#1c160c}.profile-note small{color:#888;text-transform:uppercase;font-size:9px}.profile-note p{margin:7px 0 0}.profile-rentals{margin-top:16px}.profile-rental-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #222228}.profile-rental-row:last-child{border-bottom:0}.profile-rental-row b,.profile-rental-row small{display:block}.profile-rental-row small{color:#777;margin-top:3px}.profile-modal-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}@media(max-width:700px){.profile-modal-grid{grid-template-columns:1fr}.customer-profile-card{padding:20px}.profile-modal-head h2{font-size:24px}}`;document.head.appendChild(s)})();
+
+(function(){if(document.getElementById('nexusEquipmentEditStyles'))return;const s=document.createElement('style');s.id='nexusEquipmentEditStyles';s.textContent=`
+.equipment-edit-modal{position:fixed;inset:0;z-index:100500;background:rgba(0,0,0,.92);display:flex;align-items:flex-start;justify-content:center;padding:30px 18px;overflow:auto}.equipment-edit-card{position:relative;width:min(850px,100%);padding:28px;background:#0c0c0f;border:1px solid #303038;border-radius:15px;color:#fff;box-shadow:0 30px 100px #000}.equipment-edit-close{position:absolute;right:17px;top:10px;border:0;background:none;color:#fff;font-size:34px;cursor:pointer}.equipment-edit-card h2{margin:5px 0}.equipment-edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:22px}.equipment-edit-grid label{display:flex;flex-direction:column;gap:7px}.equipment-edit-grid label.wide{grid-column:1/-1}.equipment-edit-grid label>span{font-size:9px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#8c8c94}.equipment-edit-grid input,.equipment-edit-grid textarea,.equipment-edit-grid select{box-sizing:border-box;width:100%;padding:12px;border:1px solid #37373e;border-radius:7px;background:#070709;color:#fff;font:inherit}.equipment-edit-grid small{color:#707078}.current-equipment-image{margin-top:17px;padding:12px;border:1px solid #292930;border-radius:9px}.current-equipment-image span{display:block;color:#777;font-size:9px;text-transform:uppercase;margin-bottom:8px}.current-equipment-image img{display:block;max-width:220px;max-height:140px;object-fit:cover;border-radius:6px}.equipment-edit-actions{display:flex;gap:10px;margin-top:20px}@media(max-width:650px){.equipment-edit-grid{grid-template-columns:1fr}.equipment-edit-grid label.wide{grid-column:auto}.equipment-edit-card{padding:20px}}`;document.head.appendChild(s)})();
