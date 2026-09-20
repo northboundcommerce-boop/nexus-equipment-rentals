@@ -73,6 +73,7 @@ async function loadCustomer(){
  </div>`;
 
  renderCustomerApprovalTracker(status);
+ await loadVerification();
 
  await loadCustomerEquipment(status==='approved');
  const {data:r,error}=await db.from('rental_requests').select('id,start_date,end_date,status,equipment(name)').eq('customer_id',user.id).order('created_at',{ascending:false});
@@ -165,6 +166,105 @@ window.confirmCancelReservation=async id=>{
  msg('Your reservation has been cancelled. The dates are available again.');
  await loadCustomer();
 };
+
+
+async function loadVerification(){
+ const panel=document.getElementById('verificationPanel');
+ if(!panel)return;
+ try{
+  const {data:{user},error:ue}=await db.auth.getUser();
+  if(ue||!user)throw new Error(ue?.message||'Please sign in again.');
+  const {data:v,error}=await db.from('customer_verifications').select('*').eq('user_id',user.id).maybeSingle();
+  if(error)throw error;
+  const status=v?.status||'not_submitted';
+  const label={
+   not_submitted:'NOT SUBMITTED',
+   under_review:'UNDER REVIEW',
+   verified:'VERIFIED',
+   needs_attention:'MORE INFO NEEDED',
+   rejected:'REJECTED'
+  }[status]||status.toUpperCase();
+
+  panel.innerHTML=`<div class="verification-head">
+    <div><span class="verification-kicker">REQUIRED BEFORE RENTAL APPROVAL</span><h2>Identity Verification</h2></div>
+    <span class="verification-badge ${esc(status)}">${esc(label)}</span>
+   </div>
+   ${v?.admin_notes&&['needs_attention','rejected'].includes(status)?`<div class="verification-admin-note"><b>Message from Nexus</b><p>${esc(v.admin_notes)}</p></div>`:''}
+   ${status==='verified'?`<div class="verification-success"><b>✓ Identity verified</b><p>Your identity verification is complete. Nexus can now use this as part of the rental approval process.</p></div>`:`
+   <form id="verificationForm" class="verification-form">
+    <div class="verification-grid">
+     <label>Legal First Name<input id="vfFirst" required value="${esc(v?.legal_first_name||'')}"></label>
+     <label>Legal Last Name<input id="vfLast" required value="${esc(v?.legal_last_name||'')}"></label>
+     <label class="full">Street Address<input id="vfAddress" required value="${esc(v?.address_line1||'')}"></label>
+     <label>City<input id="vfCity" required value="${esc(v?.city||'')}"></label>
+     <label>State<input id="vfState" maxlength="2" required value="${esc(v?.state||'')}"></label>
+     <label>ZIP Code<input id="vfZip" required value="${esc(v?.postal_code||'')}"></label>
+     <label>Driver License Number<input id="vfLicense" required value="${esc(v?.license_number||'')}"></label>
+     <label>License State<input id="vfLicenseState" maxlength="2" required value="${esc(v?.license_state||'')}"></label>
+     <label>License Expiration<input id="vfExpiration" type="date" required value="${esc(v?.license_expiration||'')}"></label>
+     <label>Tax ID Type<select id="vfTaxType"><option value="ssn" ${v?.tax_id_type==='ssn'?'selected':''}>SSN</option><option value="ein" ${v?.tax_id_type==='ein'?'selected':''}>EIN</option></select></label>
+     <label>SSN / EIN ${v?.tax_id_last4?`<small>Current ending: •••• ${esc(v.tax_id_last4)}</small>`:''}<input id="vfTaxId" inputmode="numeric" placeholder="${v?.tax_id_last4?'Enter only if changing':'Enter SSN or EIN'}" ${v?.tax_id_last4?'':'required'}></label>
+     <label>License Front ${v?.license_front_path?'<small>✓ File already uploaded</small>':''}<input id="vfFront" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" ${v?.license_front_path?'':'required'}></label>
+     <label>License Back ${v?.license_back_path?'<small>✓ File already uploaded</small>':''}<input id="vfBack" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" ${v?.license_back_path?'':'required'}></label>
+    </div>
+    <label class="verification-consent"><input id="vfConsent" type="checkbox" required> I certify that this information is accurate and authorize Nexus Equipment Rentals to review it for account and rental approval.</label>
+    <p class="verification-privacy">For security, Nexus stores only the last four digits of the SSN/EIN entered here.</p>
+    <button class="verification-submit" type="submit">${v?'Update & Resubmit Verification':'Submit Verification'}</button>
+   </form>`}`;
+  document.getElementById('verificationForm')?.addEventListener('submit',e=>submitVerification(e,v));
+ }catch(err){
+  panel.innerHTML=`<div class="verification-head"><div><span class="verification-kicker">REQUIRED BEFORE RENTAL APPROVAL</span><h2>Identity Verification</h2></div><span class="verification-badge rejected">ERROR</span></div><div class="verification-admin-note"><b>Verification form could not load</b><p>${esc(err.message||String(err))}</p></div>`;
+ }
+}
+
+async function submitVerification(e,existing){
+ e.preventDefault();
+ const btn=e.currentTarget.querySelector('button[type="submit"]');
+ btn.disabled=true;btn.textContent='Submitting...';
+ try{
+  const {data:{user}}=await db.auth.getUser();
+  const front=document.getElementById('vfFront')?.files?.[0];
+  const back=document.getElementById('vfBack')?.files?.[0];
+  let frontPath=existing?.license_front_path||null, backPath=existing?.license_back_path||null;
+
+  const upload=async(file,side)=>{
+   if(!file)return null;
+   if(file.size>8*1024*1024)throw new Error(`${side} file must be 8 MB or smaller.`);
+   const ext=(file.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'');
+   const path=`${user.id}/${side}-${Date.now()}.${ext}`;
+   const {error}=await db.storage.from('customer-verification-documents').upload(path,file,{upsert:false});
+   if(error)throw error;
+   return path;
+  };
+  if(front)frontPath=await upload(front,'license-front');
+  if(back)backPath=await upload(back,'license-back');
+
+  const rawTax=(document.getElementById('vfTaxId')?.value||'').replace(/\D/g,'');
+  if(!existing?.tax_id_last4 && rawTax.length<4)throw new Error('Enter a valid SSN or EIN.');
+  const payload={
+   user_id:user.id,
+   legal_first_name:document.getElementById('vfFirst').value.trim(),
+   legal_last_name:document.getElementById('vfLast').value.trim(),
+   address_line1:document.getElementById('vfAddress').value.trim(),
+   city:document.getElementById('vfCity').value.trim(),
+   state:document.getElementById('vfState').value.trim().toUpperCase(),
+   postal_code:document.getElementById('vfZip').value.trim(),
+   license_number:document.getElementById('vfLicense').value.trim(),
+   license_state:document.getElementById('vfLicenseState').value.trim().toUpperCase(),
+   license_expiration:document.getElementById('vfExpiration').value,
+   tax_id_type:document.getElementById('vfTaxType').value,
+   tax_id_last4:rawTax?rawTax.slice(-4):existing?.tax_id_last4,
+   license_front_path:frontPath,
+   license_back_path:backPath,
+   status:'under_review',
+   submitted_at:new Date().toISOString()
+  };
+  const {error}=await db.from('customer_verifications').upsert(payload,{onConflict:'user_id'});
+  if(error)throw error;
+  msg('Verification submitted to Nexus for review.');
+  await loadVerification();
+ }catch(err){msg(err.message||String(err));btn.disabled=false;btn.textContent='Submit Verification'}
+}
 
 async function loadCustomerEquipment(approved){
  const {data}=await db.from('equipment').select('*').neq('status','inactive').order('created_at',{ascending:false});
@@ -582,6 +682,17 @@ boot();
  .cancel-reservation-btn{margin-top:10px;padding:9px 13px;border:1px solid #702a2f;border-radius:7px;background:transparent;color:#ff6b72;font-size:11px;font-weight:900;letter-spacing:.04em;cursor:pointer}.cancel-reservation-btn:hover{background:#281013;border-color:#ed1c24;color:#fff}
  .contact-nexus-note{display:block;margin-top:9px;color:#999}.cancel-reservation-modal{position:fixed;inset:0;z-index:100200;background:rgba(0,0,0,.9);display:flex;align-items:center;justify-content:center;padding:20px}.cancel-reservation-card{position:relative;width:min(590px,100%);padding:30px;background:#0d0d10;border:1px solid #303038;border-radius:14px;color:#fff;box-shadow:0 30px 100px #000}.cancel-modal-close{position:absolute;right:18px;top:12px;background:none;border:0;color:#fff;font-size:34px;cursor:pointer}.cancel-reservation-card h2{margin:6px 0}.cancel-summary{margin:20px 0;padding:15px;border:1px solid #2b2b31;border-radius:9px;background:#09090b}.cancel-summary div{display:flex;justify-content:space-between;gap:20px;padding:7px 0}.cancel-summary span{color:#888}.cancel-reservation-card label{display:block;color:#ddd;font-size:12px;font-weight:800}.optional{color:#777;font-weight:400}.cancel-reservation-card textarea{display:block;width:100%;box-sizing:border-box;margin-top:8px;padding:12px;border:1px solid #383840;border-radius:7px;background:#070709;color:#fff;resize:vertical;font:inherit}.cancel-modal-actions{display:flex;gap:10px;margin-top:18px}.cancel-confirm-btn,.cancel-keep-btn{flex:1;padding:12px;border-radius:7px;font-weight:900;cursor:pointer}.cancel-confirm-btn{border:1px solid #ed1c24;background:#ed1c24;color:#fff}.cancel-keep-btn{border:1px solid #3a3a42;background:#151519;color:#fff}
  @media(max-width:560px){.cancel-modal-actions{flex-direction:column}.cancel-reservation-card{padding:25px 15px}}
+ `;
+ document.head.appendChild(s);
+})();
+
+(function addVerificationStyles(){
+ if(document.getElementById('nexusVerificationStyles'))return;
+ const s=document.createElement('style');s.id='nexusVerificationStyles';
+ s.textContent=`
+ #verificationPanel{padding:30px!important}.verification-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}.verification-kicker{color:#ff2634;font-size:10px;font-weight:900;letter-spacing:.18em}.verification-head h2{margin:7px 0 0;font-size:28px}.verification-badge{padding:8px 14px;border:1px solid #a8242d;border-radius:999px;color:#ff5962;font-size:10px;font-weight:900;letter-spacing:.06em}.verification-badge.verified{border-color:#277b4d;color:#61d896}.verification-badge.under_review{border-color:#8b692b;color:#e4b955}
+ .verification-form{margin-top:25px}.verification-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}.verification-grid .full{grid-column:1/-1}.verification-form label{display:block;color:#aaa;font-size:11px;font-weight:800}.verification-form input,.verification-form select{display:block;width:100%;box-sizing:border-box;margin-top:7px;padding:12px;border:1px solid #303038;border-radius:7px;background:#08080a;color:#fff}.verification-form small{display:block;margin-top:4px;color:#666}.verification-consent{display:flex!important;gap:9px;align-items:flex-start;margin:20px 0!important;line-height:1.5}.verification-consent input{width:auto!important;margin:3px 0 0!important}.verification-privacy{color:#777;font-size:11px}.verification-submit{width:100%;padding:13px;border:0;border-radius:7px;background:#ed1c24;color:#fff;font-weight:900;cursor:pointer}.verification-admin-note,.verification-success{margin-top:20px;padding:16px;border:1px solid #543035;border-radius:9px;background:#170d0f}.verification-success{border-color:#245e3d;background:#0d1812}.verification-admin-note p,.verification-success p{margin-bottom:0;color:#aaa;line-height:1.5}
+ @media(max-width:650px){#verificationPanel{padding:20px!important}.verification-grid{grid-template-columns:1fr}.verification-grid .full{grid-column:auto}.verification-head{flex-direction:column}}
  `;
  document.head.appendChild(s);
 })();
