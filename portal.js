@@ -63,7 +63,7 @@ async function loadCustomerEquipment(approved){
  $('#customerEquipment').innerHTML=data?.length?data.map(x=>eqCard(x,false,approved)).join(''):'<div class="equipment-item">No equipment added yet.</div>'
 }
 function eqCard(x,admin=false,approved=false){
- return `<div class="equipment-item">${x.image_url?`<img src="${esc(x.image_url)}" alt="" class="eq-img">`:''}<span class="status">${esc(x.status)}</span><h3>${esc(x.name)}</h3><p class="muted">${esc(x.category||'Equipment')}</p><p>${esc(x.description||'')}</p><div class="rate-row"><b>${money(x.daily_rate)}/day</b><span>${money(x.weekly_rate)}/week</span></div>${admin?`<div class="admin-actions"><button class="small-btn" onclick="editEq('${x.id}')">Edit</button><button class="small-btn" onclick="manageEqPhotos('${x.id}')">Photos</button><button class="small-btn" onclick="setEq('${x.id}','available')">Available</button><button class="small-btn" onclick="setEq('${x.id}','maintenance')">Maintenance</button><button class="small-btn red" onclick="removeEq('${x.id}')">Remove</button></div>`:(approved&&x.status==='available'?`<button class="small-btn red" onclick="requestRental('${x.id}','${esc(x.name)}')">Request Rental</button>`:'')}</div>`
+ return `<div class="equipment-item">${x.image_url?`<img src="${esc(x.image_url)}" alt="" class="eq-img">`:''}<span class="status">${esc(x.status)}</span><h3>${esc(x.name)}</h3><p class="muted">${esc(x.category||'Equipment')}</p><p>${esc(x.description||'')}</p><div class="rate-row"><b>${money(x.daily_rate)}/day</b><span>${money(x.weekly_rate)}/week</span></div>${admin?`<div class="admin-actions"><button class="small-btn profile-btn" onclick="openCustomerProfile('${x.id}')">View Profile</button><button class="small-btn" onclick="editEq('${x.id}')">Edit</button><button class="small-btn" onclick="manageEqPhotos('${x.id}')">Photos</button><button class="small-btn" onclick="setEq('${x.id}','available')">Available</button><button class="small-btn" onclick="setEq('${x.id}','maintenance')">Maintenance</button><button class="small-btn red" onclick="removeEq('${x.id}')">Remove</button></div>`:(approved&&x.status==='available'?`<button class="small-btn red" onclick="requestRental('${x.id}','${esc(x.name)}')">Request Rental</button>`:'')}</div>`
 }
 window.requestRental=async(id,name)=>{const start=prompt(`Start date for ${name} (YYYY-MM-DD)`);if(!start)return;const end=prompt('End date (YYYY-MM-DD)');if(!end)return;const {data:{user}}=await db.auth.getUser();const {error}=await db.from('rental_requests').insert({customer_id:user.id,equipment_id:id,start_date:start,end_date:end});msg(error?error.message:'Rental request submitted to Nexus.');loadCustomer()};
 
@@ -482,3 +482,112 @@ async function loadCustomerActionRequest(userId){
 db.auth.onAuthStateChange(async(event,session)=>{
  if(session?.user)setTimeout(()=>loadCustomerActionRequest(session.user.id),400);
 });
+
+
+// --- Full Admin Customer Profile ---
+window.openCustomerProfile=async userId=>{
+ const customer=adminCustomers.find(x=>x.id===userId);
+ if(!customer)return msg('Customer profile not found.');
+
+ const [{data:v,error:ve},{data:rentals,error:re}]=await Promise.all([
+   db.from('customer_verifications').select('*').eq('user_id',userId).maybeSingle(),
+   db.from('rental_requests').select('id,start_date,end_date,status,customer_notes,admin_notes,equipment(name)').eq('customer_id',userId).order('created_at',{ascending:false})
+ ]);
+ if(ve)return msg(ve.message);
+ if(re)return msg(re.message);
+
+ const getSigned=async path=>{
+   if(!path)return null;
+   const {data,error}=await db.storage.from('customer-verification-documents').createSignedUrl(path,300);
+   return error?null:data.signedUrl;
+ };
+ const [frontUrl,backUrl]=v ? await Promise.all([getSigned(v.license_front_path),getSigned(v.license_back_path)]) : [null,null];
+
+ let modal=document.getElementById('customerProfileModal');
+ if(!modal){modal=document.createElement('div');modal.id='customerProfileModal';modal.className='customer-profile-modal hidden';document.body.appendChild(modal)}
+
+ const verificationStatus=(v?.status||'not submitted').replaceAll('_',' ');
+ const accountStatus=(customer.approval_status||'pending').replaceAll('_',' ');
+ const rentalRows=(rentals||[]).length ? rentals.map(r=>`
+   <div class="profile-rental-row">
+    <div><b>${esc(r.equipment?.name||'Equipment')}</b><small>${esc(r.start_date||'')} → ${esc(r.end_date||'')}</small></div>
+    <span>${esc((r.status||'pending').replaceAll('_',' '))}</span>
+   </div>`).join('') : '<div class="profile-empty">No rental history yet.</div>';
+
+ modal.innerHTML=`<div class="customer-profile-card">
+   <button class="profile-close" onclick="document.getElementById('customerProfileModal').classList.add('hidden')">×</button>
+   <div class="profile-hero">
+     <div><span class="eyebrow">NEXUS CUSTOMER PROFILE</span><h2>${esc(customer.full_name||'Name not provided')}</h2><p>${esc(customer.email||'')} ${customer.phone?' · '+esc(customer.phone):''}</p></div>
+     <div class="profile-badges"><span>ACCOUNT: ${esc(accountStatus.toUpperCase())}</span><span>IDENTITY: ${esc(verificationStatus.toUpperCase())}</span></div>
+   </div>
+
+   <div class="profile-grid">
+    <section class="profile-section"><h3>Account Information</h3><dl>
+      <div><dt>Name</dt><dd>${esc(customer.full_name||'Not provided')}</dd></div>
+      <div><dt>Email</dt><dd>${esc(customer.email||'Not provided')}</dd></div>
+      <div><dt>Phone</dt><dd>${esc(customer.phone||'Not provided')}</dd></div>
+      <div><dt>Account Type</dt><dd>${esc(customer.account_type||'individual')}</dd></div>
+      <div><dt>Business</dt><dd>${esc(customer.business_name||'—')}</dd></div>
+      <div><dt>Created</dt><dd>${customer.created_at?new Date(customer.created_at).toLocaleString():'—'}</dd></div>
+    </dl></section>
+
+    <section class="profile-section"><h3>Submitted Legal Information</h3>${v?`<dl>
+      <div><dt>Legal Name</dt><dd>${esc((v.legal_first_name||'')+' '+(v.legal_last_name||''))}</dd></div>
+      <div><dt>Address</dt><dd>${esc(v.address_line1||'—')}<br>${esc(v.city||'')}, ${esc(v.state||'')} ${esc(v.postal_code||'')}</dd></div>
+      <div><dt>Submitted</dt><dd>${v.submitted_at?new Date(v.submitted_at).toLocaleString():'—'}</dd></div>
+      <div><dt>Reviewed</dt><dd>${v.reviewed_at?new Date(v.reviewed_at).toLocaleString():'Not reviewed'}</dd></div>
+    </dl>`:'<div class="profile-empty">Customer has not submitted the verification form.</div>'}</section>
+
+    <section class="profile-section"><h3>Driver's License</h3>${v?`<dl>
+      <div><dt>License Number</dt><dd>${esc(v.license_number||'Not provided')}</dd></div>
+      <div><dt>State</dt><dd>${esc(v.license_state||'—')}</dd></div>
+      <div><dt>Expiration</dt><dd>${esc(v.license_expiration||'—')}</dd></div>
+    </dl>`:'<div class="profile-empty">No license information submitted.</div>'}</section>
+
+    <section class="profile-section"><h3>Tax Identifier</h3>${v?`<dl>
+      <div><dt>Type</dt><dd>${esc((v.tax_id_type||'—').toUpperCase())}</dd></div>
+      <div><dt>Last 4</dt><dd>${v.tax_id_last4?'•••• '+esc(v.tax_id_last4):'Not provided'}</dd></div>
+    </dl><p class="security-note">The portal intentionally retains only the last four digits.</p>`:'<div class="profile-empty">No identifier submitted.</div>'}</section>
+   </div>
+
+   <section class="profile-documents"><div class="section-heading"><div><span class="eyebrow">PRIVATE DOCUMENTS</span><h3>Driver's License Images</h3></div><small>Links expire after 5 minutes</small></div>
+    <div class="profile-doc-grid">
+      <div><b>FRONT</b>${frontUrl?`<a href="${frontUrl}" target="_blank" rel="noopener"><img src="${frontUrl}" alt="Driver license front"></a>`:'<div class="profile-doc-missing">Not uploaded</div>'}</div>
+      <div><b>BACK</b>${backUrl?`<a href="${backUrl}" target="_blank" rel="noopener"><img src="${backUrl}" alt="Driver license back"></a>`:'<div class="profile-doc-missing">Not uploaded</div>'}</div>
+    </div>
+   </section>
+
+   <section class="profile-notes"><h3>Admin / Verification Notes</h3>
+     <textarea id="profileAdminNotes" rows="4" placeholder="Internal review notes…">${esc(v?.admin_notes||'')}</textarea>
+   </section>
+
+   <section class="profile-rentals"><h3>Rental History</h3>${rentalRows}</section>
+
+   <div class="profile-actions">
+    <button class="btn profile-verify" onclick="profileVerificationAction('${userId}','verified')">Verify Identity</button>
+    <button class="btn secondary" onclick="profileVerificationAction('${userId}','needs_attention')">Request More Info</button>
+    <button class="btn danger-action" onclick="profileVerificationAction('${userId}','rejected')">Reject Verification</button>
+    <button class="btn" onclick="setCustomer('${userId}','approved')">Approve Rental Account</button>
+   </div>
+ </div>`;
+ modal.classList.remove('hidden');
+};
+
+window.profileVerificationAction=async(userId,status)=>{
+ const notes=document.getElementById('profileAdminNotes')?.value.trim()||null;
+ if(status!=='verified' && !notes)return msg('Enter a note explaining what the customer needs to fix.');
+ const {data:v}=await db.from('customer_verifications').select('id').eq('user_id',userId).maybeSingle();
+ if(!v)return msg('This customer has not submitted verification information yet.');
+ const {data:{user:adminUser}}=await db.auth.getUser();
+ const {error}=await db.from('customer_verifications').update({
+   status,admin_notes:notes,reviewed_at:new Date().toISOString(),reviewed_by:adminUser.id
+ }).eq('user_id',userId);
+ if(error)return msg(error.message);
+ if(status==='needs_attention'){
+   const reason=notes||'Please review and resubmit your verification information.';
+   await db.from('profiles').update({approval_status:'more_info',more_info_request:reason,more_info_requested_at:new Date().toISOString()}).eq('id',userId);
+ }
+ msg(status==='verified'?'Identity verified.':'Verification status updated.');
+ document.getElementById('customerProfileModal')?.classList.add('hidden');
+ loadAdmin();
+};
