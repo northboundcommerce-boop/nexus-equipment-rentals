@@ -81,7 +81,7 @@ async function loadCustomer(){
  if(error){msg(error.message);return}
  $('#myRentals').innerHTML=r?.length?r.map(x=>{
    const cancellable=['pending','approved','contract_required','confirmed'].includes(x.status);
-   const action=['approved','contract_required'].includes(x.status)
+   const action=['approved','contract_required'].includes(x.status) && !x._hasSignedContract
      ? `<button class="small-btn red contract-sign-btn" onclick="openRentalContract('${x.id}')">Review & Sign Contract</button>`
      : ['confirmed','active','completed'].includes(x.status)
        ? `<div class="customer-signed-contract-actions"><small class="contract-signed-note">✓ Contract signed</small><button class="small-btn" onclick="viewMySignedContract('${x.id}')">View Contract</button><button class="small-btn" onclick="downloadMySignedContract('${x.id}')">Download Copy</button></div>`:'';
@@ -705,6 +705,7 @@ window.signRentalContract=async id=>{
   });
   const payload=await res.json().catch(()=>({}));
   if(!res.ok)throw new Error(payload.error||`Signing request failed (${res.status}).`);
+  document.querySelectorAll(`[data-sign-rental="${id}"],[onclick*="openRentalContract('${id}')"]`).forEach(el=>el.remove());
   modal?.remove();msg('Contract signed successfully. Your rental is now confirmed.');await loadCustomer();
  }catch(err){
   console.error('Contract signing failed:',err);const detail=err?.message||'Unknown signing error';msg('Contract could not be signed: '+detail);
