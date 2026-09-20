@@ -531,7 +531,7 @@ window.openCustomerProfile=async id=>{
   <section class="profile-rentals"><h3>Rental History</h3>
    ${rentals.length?rentals.map(r=>{const e=equipmentMap[r.equipment_id];return `<div class="profile-rental-row"><div><b>${esc(e?.name||'Equipment')}</b><small>${esc(r.start_date||'—')} → ${esc(r.end_date||'—')}</small></div><div class="profile-rental-actions">
  <span class="status">${esc((r.status||'pending').replaceAll('_',' '))}</span>
- ${['approved','contract_required','confirmed'].includes(r.status)?`<button class="small-btn red pickup-btn" onclick="markRentalPickedUpFromProfile('${r.id}','${id}')">✓ Picked Up</button>`:''}
+ ${r.status==='confirmed'?`<button class="small-btn" onclick="openPaymentRequest('${id}','${r.id}')">💳 Request Payment</button><button class="small-btn red pickup-btn" onclick="markRentalPickedUpFromProfile('${r.id}','${id}')">🔒 Verify Payment / Pick Up</button>`:''}
  ${r.status==='active'?`<button class="small-btn return-btn" onclick="markRentalReturnedFromProfile('${r.id}','${id}')">↩ Return Equipment</button>`:''}
  ${r.status==='completed'?`<button class="small-btn approved-btn" disabled>✓ Returned</button>`:''}
 </div></div>`}).join(''):'<p class="muted">No rental requests yet.</p>'}
@@ -566,11 +566,29 @@ window.downloadSignedContractRecord=async rentalId=>{
  const blob=new Blob([text],{type:'text/plain;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`Nexus-Signed-Contract-${rentalId}.txt`;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
 };
 
+
+async function getRentalPaymentState(rentalId){
+ const {data:rows,error}=await db.from('payment_requests').select('id,amount,status,title,paid_at').eq('rental_request_id',rentalId);
+ if(error)return {error,required:false,paid:false,due:0,paidAmount:0,rows:[]};
+ const list=rows||[],required=list.length>0;
+ const unpaid=list.filter(x=>x.status!=='paid'&&x.status!=='cancelled');
+ const paid=list.filter(x=>x.status==='paid');
+ return {required,paid:required&&unpaid.length===0,due:unpaid.reduce((a,x)=>a+Number(x.amount||0),0),paidAmount:paid.reduce((a,x)=>a+Number(x.amount||0),0),rows:list};
+}
+async function enforcePaidBeforePickup(rentalId){
+ const state=await getRentalPaymentState(rentalId);
+ if(state.error){msg('Could not verify payment status. Pickup is blocked for safety.');return false}
+ if(!state.required){msg('🔒 PAYMENT REQUIRED — Create a payment request for this rental before equipment can be released.');return false}
+ if(!state.paid){msg(`🔒 PAYMENT REQUIRED — ${money(state.due)} must be paid before this equipment can be released.`);return false}
+ return true;
+}
+
 window.markRentalPickedUpFromProfile=async(rentalId,customerId)=>{
  const rental=adminRentals.find(x=>x.id===rentalId);
  if(!rental)return msg('Rental not found.');
- if(!['approved','contract_required','confirmed'].includes(rental.status))return msg('This rental cannot be marked picked up from its current status.');
- if(!confirm('Confirm the customer has PICKED UP this equipment? This will mark the rental Active.'))return;
+ if(rental.status!=='confirmed')return msg('🔒 CONTRACT REQUIRED — The rental must be signed and confirmed before pickup.');
+ if(!(await enforcePaidBeforePickup(rentalId)))return;
+ if(!confirm('Payment is confirmed. Mark this equipment PICKED UP and make the rental Active?'))return;
  const {error}=await db.from('rental_requests').update({status:'active'}).eq('id',rentalId);
  if(error)return msg(error.message);
  if(rental.equipment_id)await db.from('equipment').update({status:'rented',available:false}).eq('id',rental.equipment_id);
@@ -645,7 +663,7 @@ function renderRentals(){
   <td><div class="admin-actions">
     ${x.status==='pending'?`<button class="small-btn red" onclick="approveRentalForContract('${x.id}')">Approve</button>`:''}
     ${x.status==='contract_required'?`<button class="small-btn" onclick="viewSignedContract('${x.id}')">Contract Pending</button>`:''}
-    ${['approved','contract_required','confirmed'].includes(x.status)?`<button class="small-btn red" onclick="adminMarkPickedUp('${x.id}')">✓ Picked Up</button>`:''}
+    ${x.status==='confirmed'?`<button class="small-btn red" onclick="adminMarkPickedUp('${x.id}')">🔒 Verify Payment / Pick Up</button>`:''}
     ${x.status==='confirmed'?`<button class="small-btn" onclick="viewSignedContract('${x.id}')">View Contract</button>`:''}
     ${x.status==='active'?`<button class="small-btn" onclick="viewSignedContract('${x.id}')">View Contract</button><button class="small-btn red return-btn" onclick="adminMarkReturned('${x.id}')">↩ Return Equipment</button>`:''}
     ${x.status==='completed'?`<button class="small-btn approved-btn" disabled>✓ Returned</button>`:''}
@@ -657,7 +675,9 @@ function renderRentals(){
 
 window.adminMarkPickedUp=async id=>{
  const r=adminRentals.find(x=>x.id===id);if(!r)return msg('Rental not found.');
- if(!confirm('Confirm this equipment was PICKED UP?'))return;
+ if(r.status!=='confirmed')return msg('🔒 CONTRACT REQUIRED — The rental must be signed and confirmed before pickup.');
+ if(!(await enforcePaidBeforePickup(id)))return;
+ if(!confirm('Payment is confirmed. Mark this equipment PICKED UP?'))return;
  const {error}=await db.from('rental_requests').update({status:'active'}).eq('id',id);if(error)return msg(error.message);
  if(r.equipment_id)await db.from('equipment').update({status:'rented',available:false}).eq('id',r.equipment_id);
  msg('Picked Up — rental is Active.');loadAdmin();
