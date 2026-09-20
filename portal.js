@@ -19,6 +19,51 @@ async function syncMyProfileFromAuth(){
 function msg(t){$('#portalMsg').textContent=t;$('#portalMsg').classList.remove('hidden');setTimeout(()=>$('#portalMsg').classList.add('hidden'),5000)}
 async function signout(){await db.auth.signOut();location.reload()} $$('[data-signout]').forEach(b=>b.onclick=signout);
 
+
+// ===== LOGIN HELP / PASSWORD RESET =====
+function installLoginHelp(){
+ const loginForm=document.getElementById('loginForm');if(!loginForm||document.getElementById('forgotPasswordBtn'))return;
+ const password=document.getElementById('loginPassword');
+ const anchor=password?.closest('label')||password;
+ const help=document.createElement('div');help.className='login-help-row';
+ help.innerHTML=`<button type="button" id="forgotPasswordBtn" class="auth-help-link">Forgot password?</button><button type="button" id="loginHelpBtn" class="auth-help-link">Login help</button>`;
+ anchor?.insertAdjacentElement('afterend',help);
+ document.getElementById('forgotPasswordBtn').onclick=openForgotPassword;
+ document.getElementById('loginHelpBtn').onclick=openLoginHelp;
+}
+function authHelpModal(html){
+ document.getElementById('authHelpModal')?.remove();
+ const m=document.createElement('div');m.id='authHelpModal';m.className='auth-help-overlay';m.innerHTML=`<div class="auth-help-card"><button class="auth-help-close" type="button">×</button>${html}</div>`;
+ document.body.appendChild(m);m.querySelector('.auth-help-close').onclick=()=>m.remove();m.onclick=e=>{if(e.target===m)m.remove()};return m;
+}
+window.openForgotPassword=()=>{
+ const current=document.getElementById('loginEmail')?.value?.trim()||'';
+ const m=authHelpModal(`<span class="auth-help-kicker">NEXUS ACCOUNT RECOVERY</span><h2>Reset your password</h2><p>Enter the email address connected to your Nexus account. We'll send you a secure password reset link.</p><label>Email address<input id="resetEmail" type="email" autocomplete="email" value="${esc(current)}" placeholder="you@example.com"></label><button id="sendResetBtn" class="auth-help-primary">Send Password Reset Link</button><small class="auth-help-note">For security, Nexus staff will never ask for your password.</small>`);
+ m.querySelector('#sendResetBtn').onclick=async()=>{
+  const email=m.querySelector('#resetEmail').value.trim();if(!email)return msg('Enter your account email.');
+  const btn=m.querySelector('#sendResetBtn');btn.disabled=true;btn.textContent='Sending…';
+  const {error}=await db.auth.resetPasswordForEmail(email,{redirectTo:`${location.origin}/portal.html?reset_password=1`});
+  if(error){btn.disabled=false;btn.textContent='Send Password Reset Link';return msg(error.message)}
+  m.innerHTML=`<div class="auth-help-success"><div>✓</div><h2>Check your email</h2><p>If an account exists for <b>${esc(email)}</b>, use the reset link in the email to choose a new password.</p><button class="auth-help-primary" onclick="document.getElementById('authHelpModal')?.remove()">Back to Login</button></div>`;
+ };
+};
+window.openLoginHelp=()=>authHelpModal(`<span class="auth-help-kicker">NEXUS LOGIN HELP</span><h2>Having trouble signing in?</h2><div class="login-help-options"><button type="button" onclick="document.getElementById('authHelpModal')?.remove();openForgotPassword()"><b>Forgot your password?</b><span>Send a secure password reset email.</span></button><div><b>Didn't confirm your email?</b><span>Check your inbox and spam folder for the confirmation message sent when you created your account.</span></div><div><b>Wrong email?</b><span>Use the same email address you used when creating your Nexus rental account.</span></div></div><small class="auth-help-note">If you still cannot access your account, contact Nexus Equipment Rentals for account assistance.</small>`);
+async function showNewPasswordModal(){
+ const hash=new URLSearchParams(location.hash.replace(/^#/,''));
+ const query=new URLSearchParams(location.search);
+ if(!(query.get('reset_password')==='1'||hash.get('type')==='recovery'))return;
+ const {data:{session}}=await db.auth.getSession();if(!session)return;
+ const m=authHelpModal(`<span class="auth-help-kicker">NEXUS ACCOUNT RECOVERY</span><h2>Choose a new password</h2><p>Create a new password for your Nexus account.</p><label>New password<input id="newPassword" type="password" autocomplete="new-password" minlength="8" placeholder="At least 8 characters"></label><label>Confirm password<input id="confirmPassword" type="password" autocomplete="new-password" minlength="8" placeholder="Enter it again"></label><button id="updatePasswordBtn" class="auth-help-primary">Update Password</button>`);
+ m.querySelector('#updatePasswordBtn').onclick=async()=>{
+  const a=m.querySelector('#newPassword').value,b=m.querySelector('#confirmPassword').value;if(a.length<8)return msg('Password must be at least 8 characters.');if(a!==b)return msg('Passwords do not match.');
+  const btn=m.querySelector('#updatePasswordBtn');btn.disabled=true;btn.textContent='Updating…';const {error}=await db.auth.updateUser({password:a});if(error){btn.disabled=false;btn.textContent='Update Password';return msg(error.message)}
+  history.replaceState({},'',location.pathname);m.remove();msg('Password updated successfully.');
+ };
+}
+document.addEventListener('DOMContentLoaded',()=>{installLoginHelp();showNewPasswordModal()});
+setTimeout(()=>{installLoginHelp();showNewPasswordModal()},250);
+(function(){const st=document.createElement('style');st.textContent=`.login-help-row{display:flex;justify-content:space-between;gap:12px;margin:-3px 0 13px}.auth-help-link{border:0;background:none;color:#b9b9c0;padding:0;font-size:12px;cursor:pointer}.auth-help-link:hover{color:#ff3b45}.auth-help-overlay{position:fixed;inset:0;z-index:99999;background:#000c;display:grid;place-items:center;padding:18px}.auth-help-card{position:relative;width:min(480px,94vw);background:#0c0c0f;border:1px solid #34343b;border-radius:13px;padding:28px;color:#fff;box-shadow:0 30px 80px #000}.auth-help-close{position:absolute;right:15px;top:12px;border:0;background:none;color:#aaa;font-size:28px;cursor:pointer}.auth-help-kicker{color:#ef202c;font-size:10px;font-weight:900;letter-spacing:.15em}.auth-help-card h2{font-size:27px;margin:7px 0 8px}.auth-help-card p{color:#aaa;line-height:1.5}.auth-help-card label{display:block;margin:17px 0;font-weight:800;font-size:12px}.auth-help-card input{display:block;width:100%;box-sizing:border-box;margin-top:7px;padding:13px;background:#070709;border:1px solid #36363d;border-radius:7px;color:#fff}.auth-help-primary{width:100%;padding:13px;border:0;border-radius:7px;background:#e91f2c;color:#fff;font-weight:900;cursor:pointer}.auth-help-primary:disabled{opacity:.6}.auth-help-note{display:block;color:#777;margin-top:14px;line-height:1.5}.login-help-options{display:grid;gap:10px;margin:18px 0}.login-help-options>button,.login-help-options>div{display:block;width:100%;box-sizing:border-box;text-align:left;padding:14px;border:1px solid #303038;border-radius:8px;background:#09090c;color:#fff}.login-help-options>button{cursor:pointer}.login-help-options>button:hover{border-color:#e91f2c}.login-help-options b,.login-help-options span{display:block}.login-help-options span{color:#888;font-size:11px;margin-top:4px}.auth-help-success{text-align:center}.auth-help-success>div{width:48px;height:48px;margin:auto;border-radius:50%;display:grid;place-items:center;background:#176b36;font-size:22px}`;document.head.appendChild(st)})();
+
 $('#loginForm').onsubmit=async e=>{e.preventDefault();const {error}=await db.auth.signInWithPassword({email:$('#loginEmail').value,password:$('#loginPassword').value});if(error)return msg(error.message);boot()};
 $('#signupForm').onsubmit=async e=>{
  e.preventDefault();
@@ -759,8 +804,22 @@ window.signRentalContract=async id=>{
   });
   const payload=await res.json().catch(()=>({}));
   if(!res.ok)throw new Error(payload.error||`Signing request failed (${res.status}).`);
+  // Contract is signed. The server now automatically creates the exact rental payment request.
+  const payRes=await fetch('/api/create-rental-payment',{
+   method:'POST',
+   headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`},
+   body:JSON.stringify({rental_request_id:id})
+  });
+  const payPayload=await payRes.json().catch(()=>({}));
+  if(!payRes.ok)throw new Error(payPayload.error||`Contract signed, but payment setup failed (${payRes.status}).`);
+
   document.querySelectorAll(`[data-sign-rental="${id}"],[onclick*="openRentalContract('${id}')"]`).forEach(el=>el.remove());
-  modal?.remove();msg('Contract signed successfully. Your rental is now confirmed.');await loadCustomer();
+  modal?.remove();
+  await loadCustomer();
+  const paymentId=payPayload.payment_request_id;
+  const amount=Number(payPayload.amount||0);
+  const payModal=authHelpModal(`<span class="auth-help-kicker">CONTRACT SIGNED ✓</span><h2>Payment Required</h2><p>Your rental is confirmed. Complete the required payment before equipment pickup.</p><div style="font-size:34px;font-weight:900;margin:20px 0">${money(amount)}</div><button id="contractPayNow" class="auth-help-primary">Pay Securely with Stripe</button><small class="auth-help-note">Your payment is processed securely by Stripe. Nexus does not store your card number.</small>`);
+  payModal.querySelector('#contractPayNow').onclick=()=>payNexusRequest(paymentId,payModal.querySelector('#contractPayNow'));
  }catch(err){
   console.error('Contract signing failed:',err);const detail=err?.message||'Unknown signing error';msg('Contract could not be signed: '+detail);
   let box=document.getElementById('contractSignError');if(!box){box=document.createElement('div');box.id='contractSignError';box.className='contract-sign-error';btn?.insertAdjacentElement('beforebegin',box)}
