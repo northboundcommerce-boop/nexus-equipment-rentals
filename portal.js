@@ -10,18 +10,37 @@ $('#signupForm').onsubmit=async e=>{
  e.preventDefault();
  const email=$('#signupEmail').value.trim();
  const password=$('#signupPassword').value;
- const metadata={
-   full_name:$('#signupName').value.trim(),
-   phone:$('#signupPhone').value.trim(),
-   account_type:$('#signupType').value,
-   business_name:$('#signupBusiness').value.trim()||null
- };
- const {data,error}=await db.auth.signUp({email,password,options:{data:metadata}});
+ const full_name=$('#signupName').value.trim();
+ const phone=$('#signupPhone').value.trim();
+ const account_type=$('#signupType').value;
+ const business_name=$('#signupBusiness').value.trim()||null;
+
+ const {data,error}=await db.auth.signUp({
+   email,
+   password,
+   options:{
+     data:{
+       full_name,
+       phone,
+       account_type,
+       business_name
+     }
+   }
+ });
+
  if(error){
-   if(String(error.message).toLowerCase().includes('rate limit')) return msg('Too many confirmation emails have been requested. Please wait and try again later.');
+   if(String(error.message).toLowerCase().includes('rate limit')){
+     return msg('Too many confirmation emails have been requested. Please wait and try again later.');
+   }
    return msg(error.message);
  }
- msg(data.session?'Account created. Your Nexus client profile is pending approval.':'Account created. Check your email to confirm your address, then sign in. Your profile will be pending Nexus approval.');
+
+ // The database trigger now creates public.profiles automatically.
+ // Do NOT manually insert/upsert a profile here.
+ msg(data.session
+   ? 'Account created. Your Nexus client profile is pending approval.'
+   : 'Account created. Check your email to confirm your address, then sign in. Your profile will be pending Nexus approval.'
+ );
  e.target.reset();
 };
 async function isAdmin(){const {data}=await db.rpc('is_admin');return !!data}
@@ -30,30 +49,10 @@ $$('.admin-tab').forEach(b=>b.onclick=()=>{ $$('.admin-tab').forEach(x=>x.classL
 
 async function loadCustomer(){
  const {data:{user}}=await db.auth.getUser();
- let {data:p}=await db.from('profiles').select('*').eq('id',user.id).maybeSingle();
-
- // Backfill older accounts from Auth metadata when the profile row is missing name/phone.
- const meta=user.user_metadata||{};
- const patch={};
- if(!p?.full_name && meta.full_name) patch.full_name=meta.full_name;
- if((!p?.phone || p.phone===user.email) && meta.phone) patch.phone=meta.phone;
- if(!p?.account_type && meta.account_type) patch.account_type=meta.account_type;
- if(!p?.business_name && meta.business_name) patch.business_name=meta.business_name;
- if(Object.keys(patch).length){
-   const {data:updated}=await db.from('profiles').update(patch).eq('id',user.id).select('*').maybeSingle();
-   if(updated) p=updated;
- }
-
+ const {data:p}=await db.from('profiles').select('*').eq('id',user.id).maybeSingle();
  const status=p?.approval_status||'pending';
  $('#customerStatus').textContent=status;
- const displayName=p?.full_name||meta.full_name||'Name not added';
- const displayPhone=(p?.phone && p.phone!==user.email)?p.phone:(meta.phone||'Phone not added');
- const acct=(p?.account_type||meta.account_type||'individual')==='business'
-   ? (p?.business_name||meta.business_name||'Business account')
-   : 'Individual account';
- $('#profileInfo').innerHTML=`<b>${esc(displayName)}</b><br>${esc(acct)}<br>${esc(user.email)}<br>${esc(displayPhone)}`;
-
- await loadVerification(user,p||{});
+ $('#profileInfo').innerHTML=`<b>${esc(p?.full_name||user.email)}</b><br>${esc(p?.business_name||'Individual account')}<br>${esc(user.email)}`;
  await loadCustomerEquipment(status==='approved');
  const {data:r}=await db.from('rental_requests').select('id,start_date,end_date,status,equipment(name)').eq('customer_id',user.id).order('created_at',{ascending:false});
  $('#myRentals').innerHTML=r?.length?r.map(x=>`<div class="notice"><b>${esc(x.equipment?.name||'Equipment')}</b><br>${x.start_date} → ${x.end_date}<br><span class="status">${esc(x.status)}</span></div>`).join(''):'No rental requests yet.'
@@ -63,7 +62,7 @@ async function loadCustomerEquipment(approved){
  $('#customerEquipment').innerHTML=data?.length?data.map(x=>eqCard(x,false,approved)).join(''):'<div class="equipment-item">No equipment added yet.</div>'
 }
 function eqCard(x,admin=false,approved=false){
- return `<div class="equipment-item">${x.image_url?`<img src="${esc(x.image_url)}" alt="" class="eq-img">`:''}<span class="status">${esc(x.status)}</span><h3>${esc(x.name)}</h3><p class="muted">${esc(x.category||'Equipment')}</p><p>${esc(x.description||'')}</p><div class="rate-row"><b>${money(x.daily_rate)}/day</b><span>${money(x.weekly_rate)}/week</span></div>${admin?`<div class="admin-actions"><button class="small-btn profile-btn" onclick="openCustomerProfile('${x.id}')">View Profile</button><button class="small-btn" onclick="editEq('${x.id}')">Edit</button><button class="small-btn" onclick="manageEqPhotos('${x.id}')">Photos</button><button class="small-btn" onclick="setEq('${x.id}','available')">Available</button><button class="small-btn" onclick="setEq('${x.id}','maintenance')">Maintenance</button><button class="small-btn red" onclick="removeEq('${x.id}')">Remove</button></div>`:(approved&&x.status==='available'?`<button class="small-btn red" onclick="requestRental('${x.id}','${esc(x.name)}')">Request Rental</button>`:'')}</div>`
+ return `<div class="equipment-item">${x.image_url?`<img src="${esc(x.image_url)}" alt="" class="eq-img">`:''}<span class="status">${esc(x.status)}</span><h3>${esc(x.name)}</h3><p class="muted">${esc(x.category||'Equipment')}</p><p>${esc(x.description||'')}</p><div class="rate-row"><b>${money(x.daily_rate)}/day</b><span>${money(x.weekly_rate)}/week</span></div>${admin?`<div class="admin-actions"><button class="small-btn" onclick="editEq('${x.id}')">Edit</button><button class="small-btn" onclick="setEq('${x.id}','available')">Available</button><button class="small-btn" onclick="setEq('${x.id}','maintenance')">Maintenance</button><button class="small-btn red" onclick="removeEq('${x.id}')">Remove</button></div>`:(approved&&x.status==='available'?`<button class="small-btn red" onclick="requestRental('${x.id}','${esc(x.name)}')">Request Rental</button>`:'')}</div>`
 }
 window.requestRental=async(id,name)=>{const start=prompt(`Start date for ${name} (YYYY-MM-DD)`);if(!start)return;const end=prompt('End date (YYYY-MM-DD)');if(!end)return;const {data:{user}}=await db.auth.getUser();const {error}=await db.from('rental_requests').insert({customer_id:user.id,equipment_id:id,start_date:start,end_date:end});msg(error?error.message:'Rental request submitted to Nexus.');loadCustomer()};
 
@@ -94,10 +93,123 @@ function renderStats(){
 function renderCustomers(){
  const q=($('#customerSearch')?.value||'').toLowerCase();
  const rows=adminCustomers.filter(x=>[x.full_name,x.email,x.business_name,x.phone].some(v=>String(v||'').toLowerCase().includes(q)));
- $('#customerTable').innerHTML=`<table class="admin-table"><thead><tr><th>Customer</th><th>Type</th><th>Status</th><th>Phone</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>`<tr><td><b>${esc(x.full_name||'Name not provided')}</b><small>${esc(x.email||'')}</small>${x.business_name?`<small>${esc(x.business_name)}</small>`:''}</td><td>${esc(x.account_type||'individual')}</td><td><span class="status">${esc(x.approval_status)}</span></td><td>${esc(x.phone||'Phone not provided')}</td><td><div class="admin-actions"><button class="small-btn red" onclick="setCustomer('${x.id}','approved')">Approve</button><button class="small-btn" onclick="openMoreInfoRequest('${x.id}')">More Info</button><button class="small-btn" onclick="setCustomer('${x.id}','rejected')">Reject</button></div></td></tr>`).join('')}</tbody></table>`
+ $('#customerTable').innerHTML=`<table class="admin-table"><thead><tr><th>Customer</th><th>Type</th><th>Status</th><th>Phone</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>`<tr><td><b>${esc(x.full_name||'Name not provided')}</b><small>${esc(x.email||'')}</small>${x.business_name?`<small>${esc(x.business_name)}</small>`:''}</td><td>${esc(x.account_type||'individual')}</td><td><span class="status">${esc(x.approval_status||'pending')}</span></td><td>${esc(x.phone||'Phone not provided')}</td><td><div class="admin-actions"><button class="small-btn" onclick="openCustomerProfile('${x.id}')">View Profile</button><button class="small-btn red" onclick="setCustomer('${x.id}','approved')">Approve</button><button class="small-btn" onclick="openMoreInfo('${x.id}')">More Info</button><button class="small-btn" onclick="setCustomer('${x.id}','rejected')">Reject</button></div></td></tr>`).join('')}</tbody></table>`
 }
 $('#customerSearch').oninput=renderCustomers;
-window.setCustomer=async(id,status)=>{const {error}=await db.from('profiles').update({approval_status:status}).eq('id',id);if(error)return msg(error.message);msg('Customer status updated.');loadAdmin()};
+
+window.setCustomer=async(id,status)=>{
+ if(status==='approved'){
+   const {data:v,error:ve}=await db.from('customer_verifications').select('status').eq('user_id',id).maybeSingle();
+   if(ve)return msg('Could not check verification: '+ve.message);
+   if(!v||v.status!=='verified')return msg('Verify this customer’s identity before approving the rental account.');
+ }
+ const {error}=await db.from('profiles').update({approval_status:status}).eq('id',id);
+ if(error)return msg(error.message);
+ msg('Customer status updated.');
+ loadAdmin()
+};
+
+window.openCustomerProfile=async id=>{
+ const c=adminCustomers.find(x=>x.id===id);
+ if(!c)return msg('Customer not found.');
+ const [{data:v,error:ve},{data:r,error:re}]=await Promise.all([
+   db.from('customer_verifications').select('*').eq('user_id',id).maybeSingle(),
+   db.from('rental_requests').select('id,start_date,end_date,status,equipment(name)').eq('customer_id',id).order('created_at',{ascending:false})
+ ]);
+ if(ve)return msg('Could not load verification: '+ve.message);
+ if(re)return msg('Could not load rentals: '+re.message);
+
+ const signed=async path=>{
+   if(!path)return null;
+   const {data,error}=await db.storage.from('customer-verification-documents').createSignedUrl(path,300);
+   return error?null:data?.signedUrl;
+ };
+ const [front,back]=v?await Promise.all([signed(v.license_front_path),signed(v.license_back_path)]):[null,null];
+
+ let modal=document.getElementById('customerProfileModal');
+ if(!modal){modal=document.createElement('div');modal.id='customerProfileModal';document.body.appendChild(modal)}
+ modal.className='nexus-modal';
+ modal.innerHTML=`<div class="nexus-modal-card">
+  <button class="nexus-modal-close" onclick="document.getElementById('customerProfileModal').remove()">×</button>
+  <p class="nexus-kicker">NEXUS CUSTOMER PROFILE</p>
+  <h2>${esc(c.full_name||'Name not provided')}</h2>
+  <p class="muted">${esc(c.email||'')} · ${esc(c.phone||'Phone not provided')}</p>
+
+  <div class="nexus-profile-grid">
+   <section><h3>Account</h3>
+    <p><b>Type:</b> ${esc(c.account_type||'individual')}</p>
+    <p><b>Business:</b> ${esc(c.business_name||'—')}</p>
+    <p><b>Account Status:</b> ${esc(c.approval_status||'pending')}</p>
+   </section>
+   <section><h3>Identity Verification</h3>
+    <p><b>Status:</b> ${esc((v?.status||'not submitted').replaceAll('_',' '))}</p>
+    <p><b>Legal Name:</b> ${v?esc(`${v.legal_first_name||''} ${v.legal_last_name||''}`.trim()||'—'):'—'}</p>
+    <p><b>Submitted:</b> ${v?.submitted_at?new Date(v.submitted_at).toLocaleString():'—'}</p>
+   </section>
+   <section><h3>Address</h3>
+    <p>${v?`${esc(v.address_line1||'—')}<br>${esc(v.city||'')}, ${esc(v.state||'')} ${esc(v.postal_code||'')}`:'No verification submitted.'}</p>
+   </section>
+   <section><h3>Driver's License</h3>
+    <p><b>Number:</b> ${esc(v?.license_number||'—')}</p>
+    <p><b>State:</b> ${esc(v?.license_state||'—')}</p>
+    <p><b>Expiration:</b> ${esc(v?.license_expiration||'—')}</p>
+   </section>
+   <section><h3>SSN / EIN</h3>
+    <p><b>Type:</b> ${esc((v?.tax_id_type||'—').toUpperCase())}</p>
+    <p><b>Last 4:</b> ${v?.tax_id_last4?'•••• '+esc(v.tax_id_last4):'—'}</p>
+   </section>
+  </div>
+
+  <section class="nexus-docs"><h3>Driver's License Images</h3>
+   <div class="nexus-doc-grid">
+    <div><b>FRONT</b>${front?`<a href="${front}" target="_blank" rel="noopener"><img src="${front}" alt="License front"></a>`:'<div class="nexus-empty">Not uploaded</div>'}</div>
+    <div><b>BACK</b>${back?`<a href="${back}" target="_blank" rel="noopener"><img src="${back}" alt="License back"></a>`:'<div class="nexus-empty">Not uploaded</div>'}</div>
+   </div>
+  </section>
+
+  <section><h3>Admin Notes</h3><textarea id="profileVerificationNotes" class="nexus-notes" rows="4" placeholder="Add review notes...">${esc(v?.admin_notes||'')}</textarea></section>
+
+  <section><h3>Rental History</h3>
+   <div>${r?.length?r.map(x=>`<div class="nexus-rental"><b>${esc(x.equipment?.name||'Equipment')}</b><span>${esc(x.status||'')}</span><small>${esc(x.start_date||'')} → ${esc(x.end_date||'')}</small></div>`).join(''):'<div class="nexus-empty">No rental history.</div>'}</div>
+  </section>
+
+  <div class="nexus-profile-actions">
+   <button class="small-btn red" onclick="reviewVerification('${id}','verified')">Verify Identity</button>
+   <button class="small-btn" onclick="reviewVerification('${id}','needs_attention')">Needs More Info</button>
+   <button class="small-btn" onclick="reviewVerification('${id}','rejected')">Reject Verification</button>
+   <button class="small-btn red" onclick="setCustomer('${id}','approved')">Approve Account</button>
+  </div>
+ </div>`;
+};
+
+window.reviewVerification=async(id,status)=>{
+ const notes=$('#profileVerificationNotes')?.value.trim()||null;
+ if(status!=='verified'&&!notes)return msg('Add a note explaining what the customer needs to provide.');
+ const {data:v}=await db.from('customer_verifications').select('id').eq('user_id',id).maybeSingle();
+ if(!v)return msg('This customer has not submitted a verification form yet.');
+ const {data:{user}}=await db.auth.getUser();
+ const {error}=await db.from('customer_verifications').update({status,admin_notes:notes,reviewed_at:new Date().toISOString(),reviewed_by:user.id}).eq('user_id',id);
+ if(error)return msg(error.message);
+ if(status==='needs_attention'){
+   await db.from('profiles').update({approval_status:'more_info'}).eq('id',id);
+ }
+ msg(status==='verified'?'Identity verified.':'Verification updated.');
+ document.getElementById('customerProfileModal')?.remove();
+ loadAdmin();
+};
+
+window.openMoreInfo=async id=>{
+ const c=adminCustomers.find(x=>x.id===id);
+ if(!c)return;
+ const reason=prompt(`What information does ${c.full_name||c.email||'this customer'} need to provide?`);
+ if(!reason?.trim())return;
+ const {error}=await db.from('profiles').update({approval_status:'more_info'}).eq('id',id);
+ if(error)return msg(error.message);
+ const {data:v}=await db.from('customer_verifications').select('id').eq('user_id',id).maybeSingle();
+ if(v)await db.from('customer_verifications').update({status:'needs_attention',admin_notes:reason.trim()}).eq('user_id',id);
+ msg('More information requested.');
+ loadAdmin();
+};
 
 function renderRentals(){
  const f=$('#rentalFilter').value;
@@ -114,50 +226,7 @@ function renderEquipment(){
 window.setEq=async(id,status)=>{const {error}=await db.from('equipment').update({status,available:status==='available'}).eq('id',id);if(error)return msg(error.message);loadAdmin()};
 window.removeEq=async id=>{if(confirm('Remove this equipment?')){const {error}=await db.from('equipment').delete().eq('id',id);if(error)return msg(error.message);loadAdmin()}};
 window.editEq=async id=>{const x=adminEquipment.find(e=>e.id===id);if(!x)return;const name=prompt('Equipment name',x.name);if(name===null)return;const daily=prompt('Daily rate',x.daily_rate??'');if(daily===null)return;const weekly=prompt('Weekly rate',x.weekly_rate??'');if(weekly===null)return;const deposit=prompt('Deposit',x.deposit??'');if(deposit===null)return;const {error}=await db.from('equipment').update({name,daily_rate:daily||null,weekly_rate:weekly||null,deposit:deposit||null}).eq('id',id);if(error)return msg(error.message);msg('Equipment updated.');loadAdmin()};
-let selectedEquipmentFiles=[];
-const eqImagesInput=$('#eqImages');
-if(eqImagesInput){
- eqImagesInput.onchange=e=>{
-   selectedEquipmentFiles=[...e.target.files].slice(0,8);
-   $('#eqImagePreview').innerHTML=selectedEquipmentFiles.map((f,i)=>`<div class="eq-preview-item"><img src="${URL.createObjectURL(f)}" alt=""><span>${i===0?'COVER':'PHOTO '+(i+1)}</span></div>`).join('');
- };
-}
-async function uploadEquipmentPhotos(equipmentId,files){
- const urls=[];
- for(let i=0;i<files.length;i++){
-   const file=files[i];
-   if(file.size>10*1024*1024) throw new Error(`${file.name} is larger than 10 MB.`);
-   const ext=(file.name.split('.').pop()||'jpg').toLowerCase();
-   const path=`${equipmentId}/${Date.now()}-${i}.${ext}`;
-   const {error}=await db.storage.from('equipment-images').upload(path,file,{contentType:file.type,upsert:false});
-   if(error) throw error;
-   const {data}=db.storage.from('equipment-images').getPublicUrl(path);
-   urls.push({equipment_id:equipmentId,storage_path:path,public_url:data.publicUrl,sort_order:i,is_cover:i===0});
- }
- if(urls.length){
-   const {error}=await db.from('equipment_images').insert(urls);
-   if(error) throw error;
-   await db.from('equipment').update({image_url:urls[0].public_url}).eq('id',equipmentId);
- }
- return urls;
-}
-$('#equipmentForm').onsubmit=async e=>{
- e.preventDefault();
- const button=e.target.querySelector('button[type="submit"]');
- button.disabled=true; button.textContent='Adding Equipment…';
- const row={name:$('#eqName').value,category:$('#eqCategory').value,description:$('#eqDescription').value,daily_rate:$('#eqDaily').value||null,weekly_rate:$('#eqWeekly').value||null,deposit:$('#eqDeposit').value||null};
- const {data:created,error}=await db.from('equipment').insert(row).select().single();
- if(error){button.disabled=false;button.textContent='Add Equipment';return msg(error.message)}
- try{
-   if(selectedEquipmentFiles.length) await uploadEquipmentPhotos(created.id,selectedEquipmentFiles);
-   e.target.reset(); selectedEquipmentFiles=[]; $('#eqImagePreview').innerHTML='';
-   msg('Equipment and photos added.');
-   loadAdmin();
- }catch(err){
-   msg(`Equipment was added, but photo upload failed: ${err.message}`);
- }
- button.disabled=false; button.textContent='Add Equipment';
-};
+$('#equipmentForm').onsubmit=async e=>{e.preventDefault();const row={name:$('#eqName').value,category:$('#eqCategory').value,description:$('#eqDescription').value,image_url:$('#eqImage').value||null,daily_rate:$('#eqDaily').value||null,weekly_rate:$('#eqWeekly').value||null,deposit:$('#eqDeposit').value||null};const {error}=await db.from('equipment').insert(row);if(error)return msg(error.message);e.target.reset();msg('Equipment added.');loadAdmin()};
 
 function renderCalendar(){
  const rows=adminRentals.filter(x=>['approved','active'].includes(x.status)).sort((a,b)=>a.start_date.localeCompare(b.start_date));
@@ -171,423 +240,22 @@ async function boot(){
  if(await isAdmin()){$('#adminView').classList.remove('hidden');await loadAdmin()}else{$('#customerView').classList.remove('hidden');await loadCustomer()}
 }
 boot();
-
-// --- Nexus secure customer verification ---
-async function loadVerification(user, profile){
-  let host=document.getElementById('verificationPanel');
-  if(!host){
-    const accountCard=document.querySelector('#customerView .panel, #customerView .card, #customerView section');
-    if(!accountCard) return;
-    host=document.createElement('div');
-    host.id='verificationPanel';
-    host.className='verification-panel';
-    accountCard.insertAdjacentElement('afterend',host);
-  }
-
-  const {data:v,error}=await db.from('customer_verifications').select('*').eq('user_id',user.id).maybeSingle();
-  if(error){
-    host.innerHTML=`<div class="verification-head"><div><span class="eyebrow">REQUIRED BEFORE RENTAL APPROVAL</span><h2>Identity Verification</h2></div><span class="verify-status">SETUP REQUIRED</span></div><p class="muted">The verification database is not connected yet. Run <b>SUPABASE-VERIFICATION-SETUP.sql</b> in Supabase SQL Editor, then refresh this page.</p>`;
-    return;
-  }
-
-  const status=(v?.status||'not_submitted').replaceAll('_',' ');
-  host.innerHTML=`
-    <div class="verification-head">
-      <div><span class="eyebrow">REQUIRED BEFORE RENTAL APPROVAL</span><h2>Identity Verification</h2></div>
-      <span class="verify-status">${escapeHtml(status.toUpperCase())}</span>
-    </div>
-    <p class="muted">Upload a valid driver's license and provide the required taxpayer identifier. Sensitive documents are stored in a private bucket and are not public.</p>
-    <form id="verificationForm" class="verification-form">
-      <div class="field-grid">
-        <label>Legal first name<input id="verifyFirst" required value="${escapeAttr(v?.legal_first_name||'')}"></label>
-        <label>Legal last name<input id="verifyLast" required value="${escapeAttr(v?.legal_last_name||'')}"></label>
-        <label>Street address<input id="verifyAddress" required value="${escapeAttr(v?.address_line1||'')}"></label>
-        <label>City<input id="verifyCity" required value="${escapeAttr(v?.city||'')}"></label>
-        <label>State<input id="verifyState" maxlength="2" required value="${escapeAttr(v?.state||'MI')}"></label>
-        <label>ZIP code<input id="verifyZip" required inputmode="numeric" value="${escapeAttr(v?.postal_code||'')}"></label>
-        <label>License number<input id="verifyLicense" required autocomplete="off" value="${escapeAttr(v?.license_number||'')}"></label>
-        <label>License state<input id="verifyLicenseState" maxlength="2" required value="${escapeAttr(v?.license_state||'MI')}"></label>
-        <label>License expiration<input id="verifyLicenseExp" type="date" required value="${escapeAttr(v?.license_expiration||'')}"></label>
-        <label>Verification type
-          <select id="verifyTaxType">
-            <option value="ssn" ${v?.tax_id_type==='ssn'?'selected':''}>Individual — SSN</option>
-            <option value="ein" ${v?.tax_id_type==='ein'?'selected':''}>Business — EIN</option>
-          </select>
-        </label>
-        <label>SSN or EIN<input id="verifyTaxId" required autocomplete="off" inputmode="numeric" placeholder="${v?.tax_id_last4?'Already submitted ••••'+escapeAttr(v.tax_id_last4):'Enter number'}"></label>
-      </div>
-      <div class="upload-grid">
-        <label class="upload-box">Driver's License — Front<input id="licenseFront" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"></label>
-        <label class="upload-box">Driver's License — Back<input id="licenseBack" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"></label>
-      </div>
-      <label class="consent"><input id="verifyConsent" type="checkbox" required> I certify this information belongs to me and is accurate. I authorize Nexus Equipment Rentals to review it for rental-account verification.</label>
-      <button class="btn primary" type="submit">Submit Verification</button>
-      <div id="verifyMsg" class="form-msg"></div>
-    </form>`;
-
-  document.getElementById('verificationForm').onsubmit=async ev=>{
-    ev.preventDefault();
-    const vm=document.getElementById('verifyMsg');
-    vm.textContent='Submitting securely…';
-    const taxRaw=document.getElementById('verifyTaxId').value.replace(/\D/g,'');
-    if(!taxRaw && !v?.tax_id_last4){vm.textContent='Enter an SSN or EIN.';return;}
-    const taxType=document.getElementById('verifyTaxType').value;
-    if(taxRaw && ((taxType==='ssn'&&taxRaw.length!==9)||(taxType==='ein'&&taxRaw.length!==9))){vm.textContent='SSN/EIN must contain 9 digits.';return;}
-
-    // For safety the browser does NOT store the full SSN/EIN in the database.
-    // Only last 4 is retained. Production identity verification should use a dedicated provider.
-    const payload={
-      user_id:user.id,
-      legal_first_name:document.getElementById('verifyFirst').value.trim(),
-      legal_last_name:document.getElementById('verifyLast').value.trim(),
-      address_line1:document.getElementById('verifyAddress').value.trim(),
-      city:document.getElementById('verifyCity').value.trim(),
-      state:document.getElementById('verifyState').value.trim().toUpperCase(),
-      postal_code:document.getElementById('verifyZip').value.trim(),
-      license_number:document.getElementById('verifyLicense').value.trim(),
-      license_state:document.getElementById('verifyLicenseState').value.trim().toUpperCase(),
-      license_expiration:document.getElementById('verifyLicenseExp').value,
-      tax_id_type:taxType,
-      tax_id_last4:taxRaw?taxRaw.slice(-4):v.tax_id_last4,
-      status:'under_review',
-      submitted_at:new Date().toISOString()
-    };
-    const {error:upErr}=await db.from('customer_verifications').upsert(payload,{onConflict:'user_id'});
-    if(upErr){vm.textContent=upErr.message;return;}
-
-    for(const [inputId,kind] of [['licenseFront','license_front'],['licenseBack','license_back']]){
-      const file=document.getElementById(inputId).files[0];
-      if(!file) continue;
-      if(file.size>8*1024*1024){vm.textContent='Each document must be 8 MB or smaller.';return;}
-      const ext=(file.name.split('.').pop()||'bin').toLowerCase();
-      const path=`${user.id}/${kind}.${ext}`;
-      const {error:stErr}=await db.storage.from('customer-verification-documents').upload(path,file,{upsert:true,contentType:file.type});
-      if(stErr){vm.textContent=stErr.message;return;}
-      const patch={user_id:user.id}; patch[kind+'_path']=path;
-      const {error:pErr}=await db.from('customer_verifications').upsert(patch,{onConflict:'user_id'});
-      if(pErr){vm.textContent=pErr.message;return;}
-    }
-    vm.textContent='Verification submitted. Nexus will review your account.';
-    await loadVerification(user,profile);
-  };
-}
-function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
-function escapeAttr(s){return escapeHtml(s);}
-
-db.auth.onAuthStateChange(async (event,session)=>{
-  if(session?.user){
-    setTimeout(async ()=>{
-      const {data:p}=await db.from('profiles').select('*').eq('id',session.user.id).maybeSingle();
-      if(p && !document.querySelector('#adminView:not([hidden])')) loadVerification(session.user,p);
-    },250);
-  }
-});
-
-window.manageEqPhotos=async id=>{
- const eq=adminEquipment.find(x=>x.id===id); if(!eq)return;
- let modal=document.getElementById('photoManagerModal');
- if(!modal){modal=document.createElement('div');modal.id='photoManagerModal';modal.className='photo-manager-modal hidden';document.body.appendChild(modal)}
- const {data:imgs,error}=await db.from('equipment_images').select('*').eq('equipment_id',id).order('sort_order');
- if(error)return msg(error.message);
- modal.innerHTML=`<div class="photo-manager-card">
-   <button class="photo-close" onclick="document.getElementById('photoManagerModal').classList.add('hidden')">×</button>
-   <div class="eyebrow">FLEET MEDIA</div><h2>${esc(eq.name)} Photos</h2>
-   <p class="muted">Upload more photos, choose the cover photo, or remove old photos.</p>
-   <div class="photo-manager-grid">${(imgs||[]).map(im=>`<div class="managed-photo ${im.is_cover?'cover':''}">
-     <img src="${esc(im.public_url)}" alt="">
-     <div class="managed-actions">${im.is_cover?'<span class="cover-tag">COVER</span>':`<button onclick="setCoverPhoto('${id}','${im.id}')">Make Cover</button>`}<button class="danger" onclick="deleteEqPhoto('${id}','${im.id}','${esc(im.storage_path)}')">Delete</button></div>
-   </div>`).join('')||'<p class="muted">No photos uploaded yet.</p>'}</div>
-   <label class="add-photo-box">Add More Photos<input id="moreEqPhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple></label>
-   <button class="btn" id="uploadMorePhotos">Upload Photos</button>
- </div>`;
- modal.classList.remove('hidden');
- document.getElementById('uploadMorePhotos').onclick=async()=>{
-   const files=[...document.getElementById('moreEqPhotos').files].slice(0,8);
-   if(!files.length)return msg('Choose at least one photo.');
-   try{await uploadEquipmentPhotos(id,files);await manageEqPhotos(id);loadAdmin();msg('Photos uploaded.')}catch(e){msg(e.message)}
- };
-};
-window.setCoverPhoto=async(equipmentId,imageId)=>{
- const {data:img}=await db.from('equipment_images').select('*').eq('id',imageId).single();
- await db.from('equipment_images').update({is_cover:false}).eq('equipment_id',equipmentId);
- const {error}=await db.from('equipment_images').update({is_cover:true}).eq('id',imageId);
- if(error)return msg(error.message);
- await db.from('equipment').update({image_url:img.public_url}).eq('id',equipmentId);
- await manageEqPhotos(equipmentId);loadAdmin();msg('Cover photo updated.');
-};
-window.deleteEqPhoto=async(equipmentId,imageId,path)=>{
- if(!confirm('Delete this equipment photo?'))return;
- const {data:img}=await db.from('equipment_images').select('*').eq('id',imageId).single();
- await db.storage.from('equipment-images').remove([path]);
- await db.from('equipment_images').delete().eq('id',imageId);
- if(img?.is_cover){
-   const {data:next}=await db.from('equipment_images').select('*').eq('equipment_id',equipmentId).order('sort_order').limit(1).maybeSingle();
-   await db.from('equipment').update({image_url:next?.public_url||null}).eq('id',equipmentId);
-   if(next) await db.from('equipment_images').update({is_cover:true}).eq('id',next.id);
- }
- await manageEqPhotos(equipmentId);loadAdmin();msg('Photo deleted.');
-};
-
-
-// --- Admin customer identity verification review ---
-window.openCustomerVerification=async userId=>{
- const customer=adminCustomers.find(x=>x.id===userId);
- if(!customer)return msg('Customer profile not found.');
-
- const {data:v,error}=await db.from('customer_verifications').select('*').eq('user_id',userId).maybeSingle();
- if(error)return msg(error.message);
-
- let modal=document.getElementById('verificationReviewModal');
- if(!modal){
-   modal=document.createElement('div');
-   modal.id='verificationReviewModal';
-   modal.className='verification-review-modal hidden';
-   document.body.appendChild(modal);
- }
-
- if(!v){
-   modal.innerHTML=`<div class="verification-review-card">
-     <button class="review-close" onclick="document.getElementById('verificationReviewModal').classList.add('hidden')">×</button>
-     <span class="eyebrow">CUSTOMER VERIFICATION</span>
-     <h2>${esc(customer.full_name||customer.email||'Customer')}</h2>
-     <div class="review-empty"><b>No verification submitted yet.</b><p>This customer must complete the Identity Verification section in their account before you can verify them.</p></div>
-   </div>`;
-   modal.classList.remove('hidden'); return;
- }
-
- const getSigned=async path=>{
-   if(!path)return null;
-   const {data,error}=await db.storage.from('customer-verification-documents').createSignedUrl(path,300);
-   return error?null:data.signedUrl;
- };
- const [frontUrl,backUrl]=await Promise.all([getSigned(v.license_front_path),getSigned(v.license_back_path)]);
- const status=(v.status||'not_submitted').replaceAll('_',' ').toUpperCase();
-
- modal.innerHTML=`<div class="verification-review-card">
-   <button class="review-close" onclick="document.getElementById('verificationReviewModal').classList.add('hidden')">×</button>
-   <div class="review-top"><div><span class="eyebrow">CUSTOMER VERIFICATION</span><h2>${esc(customer.full_name||customer.email||'Customer')}</h2><p>${esc(customer.email||'')} · ${esc(customer.phone||'No phone')}</p></div><span class="review-status">${esc(status)}</span></div>
-
-   <div class="review-grid">
-     <div class="review-section"><h3>Legal Identity</h3>
-       <dl>
-        <div><dt>Legal Name</dt><dd>${esc((v.legal_first_name||'')+' '+(v.legal_last_name||''))}</dd></div>
-        <div><dt>Address</dt><dd>${esc(v.address_line1||'—')}<br>${esc(v.city||'')}, ${esc(v.state||'')} ${esc(v.postal_code||'')}</dd></div>
-        <div><dt>Submitted</dt><dd>${v.submitted_at?new Date(v.submitted_at).toLocaleString():'—'}</dd></div>
-       </dl>
-     </div>
-     <div class="review-section"><h3>Driver's License</h3>
-       <dl>
-        <div><dt>License Number</dt><dd>${esc(v.license_number||'—')}</dd></div>
-        <div><dt>State</dt><dd>${esc(v.license_state||'—')}</dd></div>
-        <div><dt>Expiration</dt><dd>${esc(v.license_expiration||'—')}</dd></div>
-       </dl>
-     </div>
-     <div class="review-section"><h3>Tax Identifier</h3>
-       <dl>
-        <div><dt>Type</dt><dd>${esc((v.tax_id_type||'—').toUpperCase())}</dd></div>
-        <div><dt>Stored Value</dt><dd>${v.tax_id_last4?'•••• '+esc(v.tax_id_last4):'Not provided'}</dd></div>
-       </dl>
-       <p class="security-note">Only the last four digits are retained by this portal.</p>
-     </div>
-   </div>
-
-   <div class="license-review"><h3>License Documents</h3>
-     <div class="license-doc-grid">
-       <div><span>FRONT</span>${frontUrl?`<a href="${frontUrl}" target="_blank" rel="noopener"><img src="${frontUrl}" alt="Driver license front"></a>`:'<div class="missing-doc">Not uploaded</div>'}</div>
-       <div><span>BACK</span>${backUrl?`<a href="${backUrl}" target="_blank" rel="noopener"><img src="${backUrl}" alt="Driver license back"></a>`:'<div class="missing-doc">Not uploaded</div>'}</div>
-     </div>
-     <p class="security-note">Document links expire automatically after 5 minutes.</p>
-   </div>
-
-   <div class="review-notes">
-     <label>Admin Notes / Reason for More Information<textarea id="verificationAdminNotes" rows="4" placeholder="Internal notes or explain what the customer needs to resubmit…">${esc(v.admin_notes||'')}</textarea></label>
-   </div>
-   <div class="review-actions">
-     <button class="btn verify-action" onclick="updateVerificationStatus('${userId}','verified')">Verify Customer</button>
-     <button class="btn secondary" onclick="updateVerificationStatus('${userId}','needs_attention')">Needs More Information</button>
-     <button class="btn danger-action" onclick="updateVerificationStatus('${userId}','rejected')">Reject Verification</button>
-   </div>
- </div>`;
- modal.classList.remove('hidden');
-};
-
-window.updateVerificationStatus=async(userId,status)=>{
- const notes=document.getElementById('verificationAdminNotes')?.value.trim()||null;
- if((status==='needs_attention'||status==='rejected') && !notes){
-   return msg('Add a note explaining what the customer needs to fix or why verification was rejected.');
- }
- const {data:{user:adminUser}}=await db.auth.getUser();
- const {error}=await db.from('customer_verifications').update({
-   status,
-   admin_notes:notes,
-   reviewed_at:new Date().toISOString(),
-   reviewed_by:adminUser.id
- }).eq('user_id',userId);
- if(error)return msg(error.message);
- msg(status==='verified'?'Identity verification approved.':`Verification marked ${status.replace('_',' ')}.`);
- document.getElementById('verificationReviewModal')?.classList.add('hidden');
- loadAdmin();
-};
-
-// --- More Information request workflow ---
-window.openMoreInfoRequest=userId=>{
- const customer=adminCustomers.find(x=>x.id===userId);
- if(!customer)return msg('Customer not found.');
- let modal=document.getElementById('moreInfoModal');
- if(!modal){modal=document.createElement('div');modal.id='moreInfoModal';modal.className='more-info-modal hidden';document.body.appendChild(modal)}
- modal.innerHTML=`<div class="more-info-card">
-   <button class="review-close" onclick="document.getElementById('moreInfoModal').classList.add('hidden')">×</button>
-   <span class="eyebrow">CUSTOMER ACTION REQUIRED</span>
-   <h2>Request More Information</h2>
-   <p class="muted">Tell ${esc(customer.full_name||customer.email||'this customer')} exactly what Nexus needs before the account can be approved.</p>
-   <label>What does the customer need to provide?
-     <textarea id="moreInfoReason" rows="5" placeholder="Example: Please upload a clearer photo of the front of your driver's license and confirm your current address."></textarea>
-   </label>
-   <div class="review-actions">
-     <button class="btn" onclick="sendMoreInfoRequest('${userId}')">Send Request</button>
-     <button class="btn secondary" onclick="document.getElementById('moreInfoModal').classList.add('hidden')">Cancel</button>
-   </div>
- </div>`;
- modal.classList.remove('hidden');
-};
-window.sendMoreInfoRequest=async userId=>{
- const reason=document.getElementById('moreInfoReason')?.value.trim();
- if(!reason)return msg('Enter what information the customer needs to provide.');
- const {error}=await db.from('profiles').update({
-   approval_status:'more_info',
-   more_info_request:reason,
-   more_info_requested_at:new Date().toISOString()
- }).eq('id',userId);
- if(error)return msg(error.message);
- // Also place the reason on verification record when one exists.
- await db.from('customer_verifications').update({status:'needs_attention',admin_notes:reason}).eq('user_id',userId);
- document.getElementById('moreInfoModal')?.classList.add('hidden');
- msg('More information request saved. The customer will see it in their portal.');
- loadAdmin();
-};
-
-async function loadCustomerActionRequest(userId){
- const {data:p}=await db.from('profiles').select('approval_status,more_info_request,more_info_requested_at').eq('id',userId).maybeSingle();
- let el=document.getElementById('customerActionRequest');
- if(!el){
-   const host=document.getElementById('verificationPanel');
-   if(!host)return;
-   el=document.createElement('div');el.id='customerActionRequest';
-   host.insertAdjacentElement('beforebegin',el);
- }
- if(p?.approval_status==='more_info' && p.more_info_request){
-   el.innerHTML=`<div class="customer-action-alert"><span class="eyebrow">ACTION REQUIRED</span><h3>Nexus Needs More Information</h3><p>${esc(p.more_info_request)}</p><small>Update your verification information below and resubmit it for review.</small></div>`;
- }else el.innerHTML='';
-}
-db.auth.onAuthStateChange(async(event,session)=>{
- if(session?.user)setTimeout(()=>loadCustomerActionRequest(session.user.id),400);
-});
-
-
-// --- Full Admin Customer Profile ---
-window.openCustomerProfile=async userId=>{
- const customer=adminCustomers.find(x=>x.id===userId);
- if(!customer)return msg('Customer profile not found.');
-
- const [{data:v,error:ve},{data:rentals,error:re}]=await Promise.all([
-   db.from('customer_verifications').select('*').eq('user_id',userId).maybeSingle(),
-   db.from('rental_requests').select('id,start_date,end_date,status,customer_notes,admin_notes,equipment(name)').eq('customer_id',userId).order('created_at',{ascending:false})
- ]);
- if(ve)return msg(ve.message);
- if(re)return msg(re.message);
-
- const getSigned=async path=>{
-   if(!path)return null;
-   const {data,error}=await db.storage.from('customer-verification-documents').createSignedUrl(path,300);
-   return error?null:data.signedUrl;
- };
- const [frontUrl,backUrl]=v ? await Promise.all([getSigned(v.license_front_path),getSigned(v.license_back_path)]) : [null,null];
-
- let modal=document.getElementById('customerProfileModal');
- if(!modal){modal=document.createElement('div');modal.id='customerProfileModal';modal.className='customer-profile-modal hidden';document.body.appendChild(modal)}
-
- const verificationStatus=(v?.status||'not submitted').replaceAll('_',' ');
- const accountStatus=(customer.approval_status||'pending').replaceAll('_',' ');
- const rentalRows=(rentals||[]).length ? rentals.map(r=>`
-   <div class="profile-rental-row">
-    <div><b>${esc(r.equipment?.name||'Equipment')}</b><small>${esc(r.start_date||'')} → ${esc(r.end_date||'')}</small></div>
-    <span>${esc((r.status||'pending').replaceAll('_',' '))}</span>
-   </div>`).join('') : '<div class="profile-empty">No rental history yet.</div>';
-
- modal.innerHTML=`<div class="customer-profile-card">
-   <button class="profile-close" onclick="document.getElementById('customerProfileModal').classList.add('hidden')">×</button>
-   <div class="profile-hero">
-     <div><span class="eyebrow">NEXUS CUSTOMER PROFILE</span><h2>${esc(customer.full_name||'Name not provided')}</h2><p>${esc(customer.email||'')} ${customer.phone?' · '+esc(customer.phone):''}</p></div>
-     <div class="profile-badges"><span>ACCOUNT: ${esc(accountStatus.toUpperCase())}</span><span>IDENTITY: ${esc(verificationStatus.toUpperCase())}</span></div>
-   </div>
-
-   <div class="profile-grid">
-    <section class="profile-section"><h3>Account Information</h3><dl>
-      <div><dt>Name</dt><dd>${esc(customer.full_name||'Not provided')}</dd></div>
-      <div><dt>Email</dt><dd>${esc(customer.email||'Not provided')}</dd></div>
-      <div><dt>Phone</dt><dd>${esc(customer.phone||'Not provided')}</dd></div>
-      <div><dt>Account Type</dt><dd>${esc(customer.account_type||'individual')}</dd></div>
-      <div><dt>Business</dt><dd>${esc(customer.business_name||'—')}</dd></div>
-      <div><dt>Created</dt><dd>${customer.created_at?new Date(customer.created_at).toLocaleString():'—'}</dd></div>
-    </dl></section>
-
-    <section class="profile-section"><h3>Submitted Legal Information</h3>${v?`<dl>
-      <div><dt>Legal Name</dt><dd>${esc((v.legal_first_name||'')+' '+(v.legal_last_name||''))}</dd></div>
-      <div><dt>Address</dt><dd>${esc(v.address_line1||'—')}<br>${esc(v.city||'')}, ${esc(v.state||'')} ${esc(v.postal_code||'')}</dd></div>
-      <div><dt>Submitted</dt><dd>${v.submitted_at?new Date(v.submitted_at).toLocaleString():'—'}</dd></div>
-      <div><dt>Reviewed</dt><dd>${v.reviewed_at?new Date(v.reviewed_at).toLocaleString():'Not reviewed'}</dd></div>
-    </dl>`:'<div class="profile-empty">Customer has not submitted the verification form.</div>'}</section>
-
-    <section class="profile-section"><h3>Driver's License</h3>${v?`<dl>
-      <div><dt>License Number</dt><dd>${esc(v.license_number||'Not provided')}</dd></div>
-      <div><dt>State</dt><dd>${esc(v.license_state||'—')}</dd></div>
-      <div><dt>Expiration</dt><dd>${esc(v.license_expiration||'—')}</dd></div>
-    </dl>`:'<div class="profile-empty">No license information submitted.</div>'}</section>
-
-    <section class="profile-section"><h3>Tax Identifier</h3>${v?`<dl>
-      <div><dt>Type</dt><dd>${esc((v.tax_id_type||'—').toUpperCase())}</dd></div>
-      <div><dt>Last 4</dt><dd>${v.tax_id_last4?'•••• '+esc(v.tax_id_last4):'Not provided'}</dd></div>
-    </dl><p class="security-note">The portal intentionally retains only the last four digits.</p>`:'<div class="profile-empty">No identifier submitted.</div>'}</section>
-   </div>
-
-   <section class="profile-documents"><div class="section-heading"><div><span class="eyebrow">PRIVATE DOCUMENTS</span><h3>Driver's License Images</h3></div><small>Links expire after 5 minutes</small></div>
-    <div class="profile-doc-grid">
-      <div><b>FRONT</b>${frontUrl?`<a href="${frontUrl}" target="_blank" rel="noopener"><img src="${frontUrl}" alt="Driver license front"></a>`:'<div class="profile-doc-missing">Not uploaded</div>'}</div>
-      <div><b>BACK</b>${backUrl?`<a href="${backUrl}" target="_blank" rel="noopener"><img src="${backUrl}" alt="Driver license back"></a>`:'<div class="profile-doc-missing">Not uploaded</div>'}</div>
-    </div>
-   </section>
-
-   <section class="profile-notes"><h3>Admin / Verification Notes</h3>
-     <textarea id="profileAdminNotes" rows="4" placeholder="Internal review notes…">${esc(v?.admin_notes||'')}</textarea>
-   </section>
-
-   <section class="profile-rentals"><h3>Rental History</h3>${rentalRows}</section>
-
-   <div class="profile-actions">
-    <button class="btn profile-verify" onclick="profileVerificationAction('${userId}','verified')">Verify Identity</button>
-    <button class="btn secondary" onclick="profileVerificationAction('${userId}','needs_attention')">Request More Info</button>
-    <button class="btn danger-action" onclick="profileVerificationAction('${userId}','rejected')">Reject Verification</button>
-    <button class="btn" onclick="setCustomer('${userId}','approved')">Approve Rental Account</button>
-   </div>
- </div>`;
- modal.classList.remove('hidden');
-};
-
-window.profileVerificationAction=async(userId,status)=>{
- const notes=document.getElementById('profileAdminNotes')?.value.trim()||null;
- if(status!=='verified' && !notes)return msg('Enter a note explaining what the customer needs to fix.');
- const {data:v}=await db.from('customer_verifications').select('id').eq('user_id',userId).maybeSingle();
- if(!v)return msg('This customer has not submitted verification information yet.');
- const {data:{user:adminUser}}=await db.auth.getUser();
- const {error}=await db.from('customer_verifications').update({
-   status,admin_notes:notes,reviewed_at:new Date().toISOString(),reviewed_by:adminUser.id
- }).eq('user_id',userId);
- if(error)return msg(error.message);
- if(status==='needs_attention'){
-   const reason=notes||'Please review and resubmit your verification information.';
-   await db.from('profiles').update({approval_status:'more_info',more_info_request:reason,more_info_requested_at:new Date().toISOString()}).eq('id',userId);
- }
- msg(status==='verified'?'Identity verified.':'Verification status updated.');
- document.getElementById('customerProfileModal')?.classList.add('hidden');
- loadAdmin();
-};
+(function addCustomerProfileStyles(){
+ if(document.getElementById('nexusCustomerProfileStyles'))return;
+ const s=document.createElement('style');s.id='nexusCustomerProfileStyles';
+ s.textContent=`
+ .nexus-modal{position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;padding:20px}
+ .nexus-modal-card{position:relative;width:min(1050px,100%);max-height:92vh;overflow:auto;background:#0c0c0e;border:1px solid #29292f;border-radius:14px;padding:30px;color:#fff;box-shadow:0 30px 100px #000}
+ .nexus-modal-close{position:absolute;right:18px;top:12px;background:none;border:0;color:#fff;font-size:34px;cursor:pointer}
+ .nexus-kicker{color:#ed1c24;font-size:11px;font-weight:900;letter-spacing:.16em}.nexus-profile-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:22px 0}
+ .nexus-profile-grid section,.nexus-docs,.nexus-modal-card>section{border:1px solid #28282e;border-radius:9px;background:#111114;padding:17px;margin-bottom:12px}
+ .nexus-profile-grid h3,.nexus-docs h3,.nexus-modal-card>section h3{margin-top:0}.nexus-profile-grid p{color:#d3d3d5;line-height:1.55}
+ .nexus-doc-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.nexus-doc-grid b{display:block;margin-bottom:8px;color:#aaa;font-size:11px}.nexus-doc-grid img{width:100%;height:270px;object-fit:contain;background:#050506;border:1px solid #333;border-radius:8px}
+ .nexus-empty{display:grid;place-items:center;min-height:90px;border:1px dashed #3a3a40;border-radius:8px;color:#777}.nexus-doc-grid .nexus-empty{height:270px}
+ .nexus-notes{width:100%;box-sizing:border-box;padding:12px;background:#08080a;border:1px solid #37373e;border-radius:7px;color:#fff}
+ .nexus-rental{display:grid;grid-template-columns:1fr auto;gap:5px;padding:10px 0;border-bottom:1px solid #26262b}.nexus-rental small{grid-column:1/-1;color:#888}.nexus-rental span{text-transform:uppercase;font-size:11px;color:#aaa}
+ .nexus-profile-actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:18px}
+ @media(max-width:720px){.nexus-profile-grid,.nexus-doc-grid{grid-template-columns:1fr}.nexus-modal-card{padding:24px 14px}.nexus-doc-grid img,.nexus-doc-grid .nexus-empty{height:210px}}
+ `;
+ document.head.appendChild(s);
+})();
