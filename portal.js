@@ -682,21 +682,84 @@ window.openRentalContract=async id=>{
  </div>`;
 };
 window.signRentalContract=async id=>{
- const accepted=$('#contractAccept')?.checked,signature=$('#contractSignature')?.value.trim();
+ const btn=document.querySelector('.contract-submit');
+ const accepted=$('#contractAccept')?.checked;
+ const signature=$('#contractSignature')?.value.trim();
  if(!accepted)return msg('You must review and accept the agreement before signing.');
  if(!signature)return msg('Type your full legal name as your electronic signature.');
- const {data:{user}}=await db.auth.getUser();
- const {data:r,error:re}=await db.from('rental_requests').select('*').eq('id',id).eq('customer_id',user.id).maybeSingle();
- if(re||!r)return msg(re?.message||'Rental request not found.');if(!['approved','contract_required'].includes(r.status))return msg('This contract is no longer available for signing.');
- const [{data:p},{data:v},{data:eq}]=await Promise.all([db.from('profiles').select('*').eq('id',user.id).maybeSingle(),db.from('customer_verifications').select('*').eq('user_id',user.id).maybeSingle(),db.from('equipment').select('*').eq('id',r.equipment_id).maybeSingle()]);
- const modal=document.getElementById('rentalContractModal'),signedAt=new Date().toISOString(),version=modal?.dataset.templateVersion||'1.0';
- const snapshot={version,template_id:modal?.dataset.templateId||null,template_name:modal?.dataset.templateName||'Nexus Equipment Rental Agreement',template_storage_path:modal?.dataset.templatePath||null,customer_name:signature,customer_email:p?.email||user.email,customer_phone:p?.phone||null,customer_address:[v?.address_line1,v?.city,v?.state,v?.postal_code].filter(Boolean).join(', '),equipment_name:eq?.name||'Equipment',start_date:r.start_date,end_date:r.end_date,daily_rate:eq?.daily_rate??null,weekly_rate:eq?.weekly_rate??null,deposit:eq?.deposit??null,terms_version:version};
- const {error:ce}=await db.from('rental_contracts').insert({rental_request_id:id,customer_id:user.id,signature_name:signature,signed_at:signedAt,accepted:true,contract_version:version,contract_snapshot:snapshot});
- if(ce)return msg(ce.message);
- const {error:ue}=await db.from('rental_requests').update({status:'confirmed'}).eq('id',id).eq('customer_id',user.id);if(ue)return msg(ue.message);
- modal?.remove();msg('Contract signed. Your rental is confirmed.');loadCustomer();
-};
+ if(btn){btn.disabled=true;btn.dataset.oldText=btn.textContent;btn.textContent='SIGNING...'}
+ try{
+  const {data:{user},error:userError}=await db.auth.getUser();
+  if(userError||!user)throw new Error(userError?.message||'Your session expired. Please sign in again.');
 
+  const {data:r,error:re}=await db.from('rental_requests').select('*').eq('id',id).eq('customer_id',user.id).maybeSingle();
+  if(re)throw re;
+  if(!r)throw new Error('Rental request not found.');
+  if(!['approved','contract_required'].includes(r.status))throw new Error(`This rental cannot be signed while its status is ${r.status}.`);
+
+  const [pr,vr,er]=await Promise.all([
+   db.from('profiles').select('*').eq('id',user.id).maybeSingle(),
+   db.from('customer_verifications').select('*').eq('user_id',user.id).maybeSingle(),
+   db.from('equipment').select('*').eq('id',r.equipment_id).maybeSingle()
+  ]);
+  if(pr.error)throw pr.error;
+  if(er.error)throw er.error;
+  const p=pr.data,v=vr.data,eq=er.data,modal=document.getElementById('rentalContractModal');
+  const signedAt=new Date().toISOString(),version=modal?.dataset.templateVersion||'1.0';
+  const snapshot={
+   version,
+   template_id:modal?.dataset.templateId||null,
+   template_name:modal?.dataset.templateName||'Nexus Equipment Rental Agreement',
+   template_storage_path:modal?.dataset.templatePath||null,
+   customer_name:signature,
+   customer_email:p?.email||user.email,
+   customer_phone:p?.phone||null,
+   customer_address:[v?.address_line1,v?.city,v?.state,v?.postal_code].filter(Boolean).join(', '),
+   equipment_name:eq?.name||'Equipment',
+   start_date:r.start_date,end_date:r.end_date,
+   daily_rate:eq?.daily_rate??null,weekly_rate:eq?.weekly_rate??null,deposit:eq?.deposit??null,
+   terms_version:version
+  };
+
+  const {data:existing,error:existingError}=await db.from('rental_contracts').select('id').eq('rental_request_id',id).maybeSingle();
+  if(existingError)throw existingError;
+  if(existing?.id)throw new Error('This rental already has a signed contract.');
+
+  const {error:ce}=await db.from('rental_contracts').insert({
+   rental_request_id:id,
+   customer_id:user.id,
+   signature_name:signature,
+   signed_at:signedAt,
+   accepted:true,
+   contract_version:version,
+   contract_snapshot:snapshot
+  });
+  if(ce)throw ce;
+
+  const {error:ue}=await db.from('rental_requests').update({status:'confirmed'}).eq('id',id).eq('customer_id',user.id);
+  if(ue){
+   // Roll back signature record so the customer can retry cleanly.
+   await db.from('rental_contracts').delete().eq('rental_request_id',id).eq('customer_id',user.id);
+   throw ue;
+  }
+
+  modal?.remove();
+  msg('Contract signed successfully. Your rental is now confirmed.');
+  await loadCustomer();
+ }catch(err){
+  console.error('Contract signing failed:',err);
+  const detail=err?.message||'Unknown signing error';
+  msg('Contract could not be signed: '+detail);
+  let box=document.getElementById('contractSignError');
+  if(!box){
+   box=document.createElement('div');box.id='contractSignError';box.className='contract-sign-error';
+   btn?.insertAdjacentElement('beforebegin',box);
+  }
+  box.innerHTML=`<b>Could not sign contract</b><span>${esc(detail)}</span>`;
+ }finally{
+  if(btn){btn.disabled=false;btn.textContent=btn.dataset.oldText||'SIGN & CONFIRM RENTAL'}
+ }
+};
 window.viewMySignedContract=async id=>{
  const {data:{user}}=await db.auth.getUser();
  const {data:c,error}=await db.from('rental_contracts').select('*').eq('rental_request_id',id).eq('customer_id',user.id).maybeSingle();
@@ -1005,3 +1068,5 @@ window.retireContractTemplate=async id=>{
 (function(){if(document.getElementById('nexusCustomerContractsStyles'))return;const s=document.createElement('style');s.id='nexusCustomerContractsStyles';s.textContent=`.profile-contracts{margin-top:16px;padding:18px;border:1px solid #292930;border-radius:10px;background:#09090b}.profile-contracts h3{margin:0}.profile-section-head{margin-bottom:14px}.customer-contract-row{display:grid;grid-template-columns:1.35fr auto 1fr auto;gap:14px;align-items:center;padding:14px 0;border-bottom:1px solid #24242a}.customer-contract-row:last-child{border-bottom:0}.contract-main b,.contract-main small,.contract-sign-details b,.contract-sign-details small{display:block}.contract-main small,.contract-sign-details small{color:#777;margin-top:3px}.contract-sign-status{font-size:10px;font-weight:900;letter-spacing:.08em;padding:8px 10px;border-radius:6px;white-space:nowrap}.contract-sign-status.signed{background:#102619;color:#75e5a0;border:1px solid #245b38}.contract-sign-status.unsigned{background:#281114;color:#ff737a;border:1px solid #6d252b}.contract-profile-actions{display:flex;gap:7px}@media(max-width:800px){.customer-contract-row{grid-template-columns:1fr}}`;document.head.appendChild(s)})();
 
 (function(){if(document.getElementById('nexusCustomerSignedContractStyles'))return;const s=document.createElement('style');s.id='nexusCustomerSignedContractStyles';s.textContent=`.customer-signed-contract-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px}.contract-autofill-banner{margin:14px 0;padding:12px 14px;border:1px solid #245b38;background:#102619;color:#86e9aa;border-radius:8px;font-size:12px;font-weight:700}.uploaded-contract-box{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:18px 0;padding:14px;border:1px solid #35353c;background:#101013;border-radius:9px}.uploaded-contract-box b,.uploaded-contract-box small{display:block}.uploaded-contract-box small{color:#777;margin-top:4px}.signed-pdf-link{display:inline-flex!important;margin-top:18px}@media(max-width:650px){.uploaded-contract-box{align-items:flex-start;flex-direction:column}}`;document.head.appendChild(s)})();
+
+(function(){if(document.getElementById('nexusContractSignErrorStyles'))return;const s=document.createElement('style');s.id='nexusContractSignErrorStyles';s.textContent=`.contract-sign-error{margin:12px 0;padding:12px 14px;border:1px solid #8b252b;background:#2a1013;color:#ff8b91;border-radius:8px}.contract-sign-error b,.contract-sign-error span{display:block}.contract-sign-error span{margin-top:5px;font-size:12px;line-height:1.45}`;document.head.appendChild(s)})();
