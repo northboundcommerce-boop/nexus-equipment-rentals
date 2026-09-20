@@ -79,7 +79,12 @@ async function loadCustomer(){
  await loadCustomerEquipment(status==='approved');
  const {data:r,error}=await db.from('rental_requests').select('id,start_date,end_date,status,equipment(name)').eq('customer_id',user.id).order('created_at',{ascending:false});
  if(error){msg(error.message);return}
+ const {data:signedRows,error:signedErr}=await db.from('rental_contracts').select('rental_request_id').eq('customer_id',user.id);
+ if(signedErr) console.error('Could not load signed contracts:',signedErr);
+ const signedRentalIds=new Set((signedRows||[]).map(c=>String(c.rental_request_id)));
+ (r||[]).forEach(x=>x._hasSignedContract=signedRentalIds.has(String(x.id)));
  $('#myRentals').innerHTML=r?.length?r.map(x=>{
+   if(x._hasSignedContract && ['approved','contract_required'].includes(x.status)) x.status='confirmed';
    const cancellable=['pending','approved','contract_required','confirmed'].includes(x.status);
    const action=['approved','contract_required'].includes(x.status) && !x._hasSignedContract
      ? `<button class="small-btn red contract-sign-btn" onclick="openRentalContract('${x.id}')">Review & Sign Contract</button>`
