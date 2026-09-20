@@ -327,3 +327,104 @@ window.deleteEqPhoto=async(equipmentId,imageId,path)=>{
  }
  await manageEqPhotos(equipmentId);loadAdmin();msg('Photo deleted.');
 };
+
+
+// --- Admin customer identity verification review ---
+window.openCustomerVerification=async userId=>{
+ const customer=adminCustomers.find(x=>x.id===userId);
+ if(!customer)return msg('Customer profile not found.');
+
+ const {data:v,error}=await db.from('customer_verifications').select('*').eq('user_id',userId).maybeSingle();
+ if(error)return msg(error.message);
+
+ let modal=document.getElementById('verificationReviewModal');
+ if(!modal){
+   modal=document.createElement('div');
+   modal.id='verificationReviewModal';
+   modal.className='verification-review-modal hidden';
+   document.body.appendChild(modal);
+ }
+
+ if(!v){
+   modal.innerHTML=`<div class="verification-review-card">
+     <button class="review-close" onclick="document.getElementById('verificationReviewModal').classList.add('hidden')">×</button>
+     <span class="eyebrow">CUSTOMER VERIFICATION</span>
+     <h2>${esc(customer.full_name||customer.email||'Customer')}</h2>
+     <div class="review-empty"><b>No verification submitted yet.</b><p>This customer must complete the Identity Verification section in their account before you can verify them.</p></div>
+   </div>`;
+   modal.classList.remove('hidden'); return;
+ }
+
+ const getSigned=async path=>{
+   if(!path)return null;
+   const {data,error}=await db.storage.from('customer-verification-documents').createSignedUrl(path,300);
+   return error?null:data.signedUrl;
+ };
+ const [frontUrl,backUrl]=await Promise.all([getSigned(v.license_front_path),getSigned(v.license_back_path)]);
+ const status=(v.status||'not_submitted').replaceAll('_',' ').toUpperCase();
+
+ modal.innerHTML=`<div class="verification-review-card">
+   <button class="review-close" onclick="document.getElementById('verificationReviewModal').classList.add('hidden')">×</button>
+   <div class="review-top"><div><span class="eyebrow">CUSTOMER VERIFICATION</span><h2>${esc(customer.full_name||customer.email||'Customer')}</h2><p>${esc(customer.email||'')} · ${esc(customer.phone||'No phone')}</p></div><span class="review-status">${esc(status)}</span></div>
+
+   <div class="review-grid">
+     <div class="review-section"><h3>Legal Identity</h3>
+       <dl>
+        <div><dt>Legal Name</dt><dd>${esc((v.legal_first_name||'')+' '+(v.legal_last_name||''))}</dd></div>
+        <div><dt>Address</dt><dd>${esc(v.address_line1||'—')}<br>${esc(v.city||'')}, ${esc(v.state||'')} ${esc(v.postal_code||'')}</dd></div>
+        <div><dt>Submitted</dt><dd>${v.submitted_at?new Date(v.submitted_at).toLocaleString():'—'}</dd></div>
+       </dl>
+     </div>
+     <div class="review-section"><h3>Driver's License</h3>
+       <dl>
+        <div><dt>License Number</dt><dd>${esc(v.license_number||'—')}</dd></div>
+        <div><dt>State</dt><dd>${esc(v.license_state||'—')}</dd></div>
+        <div><dt>Expiration</dt><dd>${esc(v.license_expiration||'—')}</dd></div>
+       </dl>
+     </div>
+     <div class="review-section"><h3>Tax Identifier</h3>
+       <dl>
+        <div><dt>Type</dt><dd>${esc((v.tax_id_type||'—').toUpperCase())}</dd></div>
+        <div><dt>Stored Value</dt><dd>${v.tax_id_last4?'•••• '+esc(v.tax_id_last4):'Not provided'}</dd></div>
+       </dl>
+       <p class="security-note">Only the last four digits are retained by this portal.</p>
+     </div>
+   </div>
+
+   <div class="license-review"><h3>License Documents</h3>
+     <div class="license-doc-grid">
+       <div><span>FRONT</span>${frontUrl?`<a href="${frontUrl}" target="_blank" rel="noopener"><img src="${frontUrl}" alt="Driver license front"></a>`:'<div class="missing-doc">Not uploaded</div>'}</div>
+       <div><span>BACK</span>${backUrl?`<a href="${backUrl}" target="_blank" rel="noopener"><img src="${backUrl}" alt="Driver license back"></a>`:'<div class="missing-doc">Not uploaded</div>'}</div>
+     </div>
+     <p class="security-note">Document links expire automatically after 5 minutes.</p>
+   </div>
+
+   <div class="review-notes">
+     <label>Admin Notes / Reason for More Information<textarea id="verificationAdminNotes" rows="4" placeholder="Internal notes or explain what the customer needs to resubmit…">${esc(v.admin_notes||'')}</textarea></label>
+   </div>
+   <div class="review-actions">
+     <button class="btn verify-action" onclick="updateVerificationStatus('${userId}','verified')">Verify Customer</button>
+     <button class="btn secondary" onclick="updateVerificationStatus('${userId}','needs_attention')">Needs More Information</button>
+     <button class="btn danger-action" onclick="updateVerificationStatus('${userId}','rejected')">Reject Verification</button>
+   </div>
+ </div>`;
+ modal.classList.remove('hidden');
+};
+
+window.updateVerificationStatus=async(userId,status)=>{
+ const notes=document.getElementById('verificationAdminNotes')?.value.trim()||null;
+ if((status==='needs_attention'||status==='rejected') && !notes){
+   return msg('Add a note explaining what the customer needs to fix or why verification was rejected.');
+ }
+ const {data:{user:adminUser}}=await db.auth.getUser();
+ const {error}=await db.from('customer_verifications').update({
+   status,
+   admin_notes:notes,
+   reviewed_at:new Date().toISOString(),
+   reviewed_by:adminUser.id
+ }).eq('user_id',userId);
+ if(error)return msg(error.message);
+ msg(status==='verified'?'Identity verification approved.':`Verification marked ${status.replace('_',' ')}.`);
+ document.getElementById('verificationReviewModal')?.classList.add('hidden');
+ loadAdmin();
+};
