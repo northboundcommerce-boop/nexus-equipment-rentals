@@ -2,6 +2,20 @@ const db=window.nexusDb,$=s=>document.querySelector(s),$$=s=>document.querySelec
 let adminCustomers=[],adminRentals=[],adminEquipment=[];
 const esc=(s='')=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const money=v=>v==null||v===''?'—':'$'+Number(v).toFixed(2);
+
+async function syncMyProfileFromAuth(){
+ const {data:{user}}=await db.auth.getUser();
+ if(!user)return;
+ const {data:p}=await db.from('profiles').select('*').eq('id',user.id).maybeSingle();
+ const meta=user.user_metadata||{};
+ const patch={};
+ if(!p?.full_name && meta.full_name)patch.full_name=meta.full_name;
+ if(!p?.phone && meta.phone)patch.phone=meta.phone;
+ if(!p?.business_name && meta.business_name)patch.business_name=meta.business_name;
+ if((!p?.account_type||p.account_type==='individual') && meta.account_type)patch.account_type=meta.account_type;
+ if(Object.keys(patch).length)await db.from('profiles').update(patch).eq('id',user.id);
+}
+
 function msg(t){$('#portalMsg').textContent=t;$('#portalMsg').classList.remove('hidden');setTimeout(()=>$('#portalMsg').classList.add('hidden'),5000)}
 async function signout(){await db.auth.signOut();location.reload()} $$('[data-signout]').forEach(b=>b.onclick=signout);
 
@@ -49,6 +63,7 @@ $$('.admin-tab').forEach(b=>b.onclick=()=>{ $$('.admin-tab').forEach(x=>x.classL
 
 async function loadCustomer(){
  const {data:{user}}=await db.auth.getUser();
+ await syncMyProfileFromAuth();
  const {data:p}=await db.from('profiles').select('*').eq('id',user.id).maybeSingle();
  const status=p?.approval_status||'pending';
  $('#customerStatus').textContent=status;
