@@ -169,12 +169,29 @@ window.requestRental=async(id,name)=>{
 };
 
 async function loadAdmin(){
+ // Load the three tables separately. This avoids the rental list disappearing
+ // when Supabase cannot resolve the profiles foreign-key relationship.
  const [pc,rr,eq]=await Promise.all([
   db.from('profiles').select('*').order('created_at',{ascending:false}),
-  db.from('rental_requests').select('*,equipment(name,daily_rate,weekly_rate),profiles!rental_requests_customer_id_fkey(full_name,email,business_name)').order('created_at',{ascending:false}),
+  db.from('rental_requests').select('*').order('created_at',{ascending:false}),
   db.from('equipment').select('*').order('created_at',{ascending:false})
  ]);
- adminCustomers=pc.data||[]; adminRentals=rr.data||[]; adminEquipment=eq.data||[];
+
+ if(pc.error)msg('Customers error: '+pc.error.message);
+ if(rr.error)msg('Rental requests error: '+rr.error.message);
+ if(eq.error)msg('Equipment error: '+eq.error.message);
+
+ adminCustomers=pc.data||[];
+ adminEquipment=eq.data||[];
+
+ const customerMap=Object.fromEntries(adminCustomers.map(x=>[x.id,x]));
+ const equipmentMap=Object.fromEntries(adminEquipment.map(x=>[x.id,x]));
+ adminRentals=(rr.data||[]).map(r=>({
+   ...r,
+   profiles:customerMap[r.customer_id]||null,
+   equipment:equipmentMap[r.equipment_id]||null
+ }));
+
  renderStats(); renderCustomers(); renderRentals(); renderEquipment(); renderCalendar();
 }
 function renderStats(){
@@ -201,9 +218,28 @@ $('#customerSearch').oninput=renderCustomers;
 window.setCustomer=async(id,status)=>{const {error}=await db.from('profiles').update({approval_status:status}).eq('id',id);if(error)return msg(error.message);msg('Customer status updated.');loadAdmin()};
 
 function renderRentals(){
- const f=$('#rentalFilter').value;
+ const filter=$('#rentalFilter');
+ const f=filter?.value||'all';
  const rows=adminRentals.filter(x=>f==='all'||x.status===f);
- $('#rentalTable').innerHTML=`<table class="admin-table"><thead><tr><th>Customer</th><th>Equipment</th><th>Dates</th><th>Status</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>`<tr><td><b>${esc(x.profiles?.full_name||'Customer')}</b><small>${esc(x.profiles?.email||'')}</small></td><td>${esc(x.equipment?.name||'Equipment')}</td><td>${x.start_date}<br><small>to ${x.end_date}</small></td><td><span class="status">${esc(x.status)}</span></td><td><div class="admin-actions"><button class="small-btn red" onclick="setRental('${x.id}','approved')">Approve</button><button class="small-btn" onclick="setRental('${x.id}','active')">Picked Up</button><button class="small-btn" onclick="setRental('${x.id}','completed')">Returned</button><button class="small-btn" onclick="setRental('${x.id}','rejected')">Reject</button></div></td></tr>`).join('')}</tbody></table>`
+ const table=$('#rentalTable');
+ if(!table)return;
+ if(!rows.length){
+   table.innerHTML=`<div class="notice">No ${f==='all'?'rental requests':esc(f)+' rental requests'} found.</div>`;
+   return;
+ }
+ table.innerHTML=`<table class="admin-table"><thead><tr><th>Customer</th><th>Equipment</th><th>Dates</th><th>Status</th><th>Request Details</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>`<tr>
+  <td><b>${esc(x.profiles?.full_name||x.profiles?.email||'Customer')}</b><small>${esc(x.profiles?.email||'')}</small><small>${esc(x.profiles?.phone||'')}</small></td>
+  <td><b>${esc(x.equipment?.name||'Equipment')}</b></td>
+  <td>${esc(x.start_date||'—')}<br><small>to ${esc(x.end_date||'—')}</small></td>
+  <td><span class="status">${esc(x.status||'pending')}</span></td>
+  <td><small style="white-space:pre-line">${esc(x.customer_notes||'No notes submitted')}</small></td>
+  <td><div class="admin-actions">
+    ${x.status==='pending'?`<button class="small-btn red" onclick="setRental('${x.id}','approved')">Approve</button>`:''}
+    ${x.status==='approved'?`<button class="small-btn" onclick="setRental('${x.id}','active')">Picked Up</button>`:''}
+    ${x.status==='active'?`<button class="small-btn" onclick="setRental('${x.id}','completed')">Returned</button>`:''}
+    ${['pending','approved'].includes(x.status)?`<button class="small-btn" onclick="setRental('${x.id}','rejected')">Reject</button>`:''}
+  </div></td>
+ </tr>`).join('')}</tbody></table>`;
 }
 $('#rentalFilter').onchange=renderRentals;
 window.setRental=async(id,status)=>{const {error}=await db.from('rental_requests').update({status}).eq('id',id);if(error)return msg(error.message);msg('Rental updated.');loadAdmin()};
