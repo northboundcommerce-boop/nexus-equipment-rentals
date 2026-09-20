@@ -94,7 +94,7 @@ function renderStats(){
 function renderCustomers(){
  const q=($('#customerSearch')?.value||'').toLowerCase();
  const rows=adminCustomers.filter(x=>[x.full_name,x.email,x.business_name,x.phone].some(v=>String(v||'').toLowerCase().includes(q)));
- $('#customerTable').innerHTML=`<table class="admin-table"><thead><tr><th>Customer</th><th>Type</th><th>Status</th><th>Phone</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>`<tr><td><b>${esc(x.full_name||'Name not provided')}</b><small>${esc(x.email||'')}</small>${x.business_name?`<small>${esc(x.business_name)}</small>`:''}</td><td>${esc(x.account_type||'individual')}</td><td><span class="status">${esc(x.approval_status)}</span></td><td>${esc(x.phone||'Phone not provided')}</td><td><div class="admin-actions"><button class="small-btn red" onclick="setCustomer('${x.id}','approved')">Approve</button><button class="small-btn" onclick="setCustomer('${x.id}','more_info')">More Info</button><button class="small-btn" onclick="setCustomer('${x.id}','rejected')">Reject</button></div></td></tr>`).join('')}</tbody></table>`
+ $('#customerTable').innerHTML=`<table class="admin-table"><thead><tr><th>Customer</th><th>Type</th><th>Status</th><th>Phone</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>`<tr><td><b>${esc(x.full_name||'Name not provided')}</b><small>${esc(x.email||'')}</small>${x.business_name?`<small>${esc(x.business_name)}</small>`:''}</td><td>${esc(x.account_type||'individual')}</td><td><span class="status">${esc(x.approval_status)}</span></td><td>${esc(x.phone||'Phone not provided')}</td><td><div class="admin-actions"><button class="small-btn red" onclick="setCustomer('${x.id}','approved')">Approve</button><button class="small-btn" onclick="openMoreInfoRequest('${x.id}')">More Info</button><button class="small-btn" onclick="setCustomer('${x.id}','rejected')">Reject</button></div></td></tr>`).join('')}</tbody></table>`
 }
 $('#customerSearch').oninput=renderCustomers;
 window.setCustomer=async(id,status)=>{const {error}=await db.from('profiles').update({approval_status:status}).eq('id',id);if(error)return msg(error.message);msg('Customer status updated.');loadAdmin()};
@@ -428,3 +428,57 @@ window.updateVerificationStatus=async(userId,status)=>{
  document.getElementById('verificationReviewModal')?.classList.add('hidden');
  loadAdmin();
 };
+
+// --- More Information request workflow ---
+window.openMoreInfoRequest=userId=>{
+ const customer=adminCustomers.find(x=>x.id===userId);
+ if(!customer)return msg('Customer not found.');
+ let modal=document.getElementById('moreInfoModal');
+ if(!modal){modal=document.createElement('div');modal.id='moreInfoModal';modal.className='more-info-modal hidden';document.body.appendChild(modal)}
+ modal.innerHTML=`<div class="more-info-card">
+   <button class="review-close" onclick="document.getElementById('moreInfoModal').classList.add('hidden')">×</button>
+   <span class="eyebrow">CUSTOMER ACTION REQUIRED</span>
+   <h2>Request More Information</h2>
+   <p class="muted">Tell ${esc(customer.full_name||customer.email||'this customer')} exactly what Nexus needs before the account can be approved.</p>
+   <label>What does the customer need to provide?
+     <textarea id="moreInfoReason" rows="5" placeholder="Example: Please upload a clearer photo of the front of your driver's license and confirm your current address."></textarea>
+   </label>
+   <div class="review-actions">
+     <button class="btn" onclick="sendMoreInfoRequest('${userId}')">Send Request</button>
+     <button class="btn secondary" onclick="document.getElementById('moreInfoModal').classList.add('hidden')">Cancel</button>
+   </div>
+ </div>`;
+ modal.classList.remove('hidden');
+};
+window.sendMoreInfoRequest=async userId=>{
+ const reason=document.getElementById('moreInfoReason')?.value.trim();
+ if(!reason)return msg('Enter what information the customer needs to provide.');
+ const {error}=await db.from('profiles').update({
+   approval_status:'more_info',
+   more_info_request:reason,
+   more_info_requested_at:new Date().toISOString()
+ }).eq('id',userId);
+ if(error)return msg(error.message);
+ // Also place the reason on verification record when one exists.
+ await db.from('customer_verifications').update({status:'needs_attention',admin_notes:reason}).eq('user_id',userId);
+ document.getElementById('moreInfoModal')?.classList.add('hidden');
+ msg('More information request saved. The customer will see it in their portal.');
+ loadAdmin();
+};
+
+async function loadCustomerActionRequest(userId){
+ const {data:p}=await db.from('profiles').select('approval_status,more_info_request,more_info_requested_at').eq('id',userId).maybeSingle();
+ let el=document.getElementById('customerActionRequest');
+ if(!el){
+   const host=document.getElementById('verificationPanel');
+   if(!host)return;
+   el=document.createElement('div');el.id='customerActionRequest';
+   host.insertAdjacentElement('beforebegin',el);
+ }
+ if(p?.approval_status==='more_info' && p.more_info_request){
+   el.innerHTML=`<div class="customer-action-alert"><span class="eyebrow">ACTION REQUIRED</span><h3>Nexus Needs More Information</h3><p>${esc(p.more_info_request)}</p><small>Update your verification information below and resubmit it for review.</small></div>`;
+ }else el.innerHTML='';
+}
+db.auth.onAuthStateChange(async(event,session)=>{
+ if(session?.user)setTimeout(()=>loadCustomerActionRequest(session.user.id),400);
+});
