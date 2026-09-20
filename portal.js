@@ -1300,9 +1300,30 @@ async function loadMyPaymentRequests(){
  mount.querySelectorAll('[data-payment-id]').forEach(btn=>btn.addEventListener('click',()=>payNexusRequest(btn.dataset.paymentId,btn)));
 }
 window.payNexusRequest=async(id,button)=>{
- const btn=button||event?.currentTarget;if(btn){btn.disabled=true;btn.innerHTML='<span>Opening Stripe Checkout…</span><small>Please wait</small>'}
- try{const {data:{session}}=await db.auth.getSession();const res=await fetch('/api/create-payment-checkout',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${session?.access_token||''}`},body:JSON.stringify({payment_request_id:id})});const out=await res.json();if(!res.ok)throw new Error(out.error||'Could not create Stripe Checkout.');if(!out.url)throw new Error('Stripe did not return a checkout link.');window.location.assign(out.url)}
- catch(e){msg(e.message);if(btn){btn.disabled=false;btn.innerHTML='<span>Pay Securely with Stripe</span><small>Secure Stripe Checkout</small>'}}
+ const btn=button||null;
+ if(!id){msg('Payment request is missing. Please refresh and try again.');return}
+ if(btn){btn.disabled=true;btn.innerHTML='<span>Opening Stripe Checkout…</span><small>Please wait</small>'}
+ try{
+  const {data:{session},error:sessionError}=await db.auth.getSession();
+  if(sessionError||!session?.access_token)throw new Error('Your session expired. Please sign in again.');
+  const res=await fetch('/api/create-payment-checkout',{
+   method:'POST',
+   headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`},
+   body:JSON.stringify({payment_request_id:id})
+  });
+  const raw=await res.text();let out={};try{out=raw?JSON.parse(raw):{}}catch(_){out={error:raw||'Invalid checkout response'}}
+  if(!res.ok)throw new Error(out.error||`Stripe checkout failed (${res.status}).`);
+  if(!out.url)throw new Error('Stripe Checkout did not return a payment link.');
+  window.location.href=out.url;
+ }catch(e){
+  console.error('Stripe checkout error:',e);
+  const detail=e?.message||'Could not open Stripe Checkout.';
+  msg(detail);
+  let box=document.getElementById('stripeCheckoutError');
+  if(!box){box=document.createElement('div');box.id='stripeCheckoutError';box.className='stripe-checkout-error';btn?.insertAdjacentElement('afterend',box)}
+  if(box)box.innerHTML=`<b>Payment could not open</b><span>${esc(detail)}</span>`;
+  if(btn){btn.disabled=false;btn.innerHTML='<span>Pay Securely with Stripe</span><small>Secure Stripe Checkout</small>'}
+ }
 };
 
 window.openPaymentRequest=async(customerId,rentalId='')=>{
@@ -1458,3 +1479,5 @@ window.renderPaymentsTab=async(filter)=>{
 })();
 
 (function(){const st=document.createElement('style');st.textContent=`.customer-checkout-center{padding:26px!important}.customer-pay-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;padding-bottom:20px}.customer-pay-hero h2{font-size:30px;margin:5px 0}.customer-pay-hero p{margin:0;color:#999}.customer-total-due{text-align:right}.customer-total-due small{display:block;color:#777;font-size:9px;font-weight:900}.customer-total-due b{font-size:30px}.customer-payment-card{display:flex;justify-content:space-between;gap:20px;align-items:center;padding:20px;margin-top:12px;border:1px solid #3c282b;border-radius:11px;background:#100c0e}.customer-payment-card.paid{border-color:#244d30;background:#0b130e}.customer-payment-info{display:flex;gap:14px;align-items:center}.pay-icon{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:#e71f2c;color:#fff;font-weight:900;font-size:18px;flex:none}.customer-payment-card.paid .pay-icon,.no-payments .pay-icon{background:#176b36}.customer-payment-info h3{margin:0 0 5px}.customer-payment-info p,.customer-payment-info small{margin:0;color:#888}.customer-payment-side{text-align:right;min-width:230px}.customer-payment-side>strong{display:block;font-size:24px}.pay-state{display:inline-block;margin:5px 0 10px;padding:4px 8px;border-radius:999px;font-size:9px;font-weight:900}.pay-state.due{background:#3c1519;color:#ff747c}.pay-state.paid{background:#11391e;color:#66dc89}.stripe-pay-btn{width:100%;border:0;border-radius:8px;background:#e91f2c;color:#fff;padding:12px 16px;font-weight:900;cursor:pointer}.stripe-pay-btn span,.stripe-pay-btn small{display:block}.stripe-pay-btn small{margin-top:3px;color:#ffdadd;font-size:9px}.paid-date{display:block;color:#7c9a84}.no-payments{text-align:center;padding:32px 10px}.no-payments .pay-icon{margin:0 auto 12px}.no-payments p{color:#888}@media(max-width:650px){.customer-pay-hero,.customer-payment-card{align-items:stretch;flex-direction:column}.customer-total-due,.customer-payment-side{text-align:left;min-width:0}}`;document.head.appendChild(st)})();
+
+(function(){const st=document.createElement('style');st.textContent=`.stripe-checkout-error{margin-top:10px;padding:11px 13px;border:1px solid #6b242a;background:#241014;border-radius:7px;color:#ff9da3;text-align:left}.stripe-checkout-error b,.stripe-checkout-error span{display:block}.stripe-checkout-error span{font-size:11px;margin-top:4px}`;document.head.appendChild(st)})();
