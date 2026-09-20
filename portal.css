@@ -1,0 +1,13 @@
+
+.verification-panel{margin:28px 0;padding:28px;border:1px solid #2b2b2f;border-radius:12px;background:linear-gradient(135deg,#101014,#09090b);box-shadow:0 18px 50px rgba(0,0,0,.25)}
+.verification-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:8px}
+.verification-head h2{margin:4px 0 0;font-size:28px}.eyebrow{font-size:11px;letter-spacing:.14em;color:#ff353f;font-weight:800}
+.verify-status{border:1px solid #7e2026;background:#241014;color:#ff7a81;border-radius:999px;padding:8px 12px;font-size:11px;font-weight:800;letter-spacing:.1em}
+.verification-form{margin-top:22px}.field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.verification-form label{display:flex;flex-direction:column;gap:8px;font-size:13px;font-weight:700;color:#ddd}
+.verification-form input,.verification-form select{width:100%;box-sizing:border-box;background:#0c0c0f;border:1px solid #34343a;border-radius:8px;color:#fff;padding:13px 14px;outline:none}
+.verification-form input:focus,.verification-form select:focus{border-color:#ed1c24}
+.upload-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0}.upload-box{padding:18px;border:1px dashed #555;border-radius:10px;background:#0b0b0d}
+.consent{flex-direction:row!important;align-items:flex-start;margin:16px 0 20px;font-weight:500!important;color:#aaa!important}.consent input{width:auto;margin-top:2px}
+.form-msg{margin-top:12px;color:#bbb}.muted{color:#9d9da5}
+@media(max-width:760px){.field-grid,.upload-grid{grid-template-columns:1fr}.verification-head{flex-direction:column}}

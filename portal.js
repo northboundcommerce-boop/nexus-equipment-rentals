@@ -10,37 +10,18 @@ $('#signupForm').onsubmit=async e=>{
  e.preventDefault();
  const email=$('#signupEmail').value.trim();
  const password=$('#signupPassword').value;
- const full_name=$('#signupName').value.trim();
- const phone=$('#signupPhone').value.trim();
- const account_type=$('#signupType').value;
- const business_name=$('#signupBusiness').value.trim()||null;
-
- const {data,error}=await db.auth.signUp({
-   email,
-   password,
-   options:{
-     data:{
-       full_name,
-       phone,
-       account_type,
-       business_name
-     }
-   }
- });
-
+ const metadata={
+   full_name:$('#signupName').value.trim(),
+   phone:$('#signupPhone').value.trim(),
+   account_type:$('#signupType').value,
+   business_name:$('#signupBusiness').value.trim()||null
+ };
+ const {data,error}=await db.auth.signUp({email,password,options:{data:metadata}});
  if(error){
-   if(String(error.message).toLowerCase().includes('rate limit')){
-     return msg('Too many confirmation emails have been requested. Please wait and try again later.');
-   }
+   if(String(error.message).toLowerCase().includes('rate limit')) return msg('Too many confirmation emails have been requested. Please wait and try again later.');
    return msg(error.message);
  }
-
- // The database trigger now creates public.profiles automatically.
- // Do NOT manually insert/upsert a profile here.
- msg(data.session
-   ? 'Account created. Your Nexus client profile is pending approval.'
-   : 'Account created. Check your email to confirm your address, then sign in. Your profile will be pending Nexus approval.'
- );
+ msg(data.session?'Account created. Your Nexus client profile is pending approval.':'Account created. Check your email to confirm your address, then sign in. Your profile will be pending Nexus approval.');
  e.target.reset();
 };
 async function isAdmin(){const {data}=await db.rpc('is_admin');return !!data}
@@ -127,3 +108,111 @@ async function boot(){
  if(await isAdmin()){$('#adminView').classList.remove('hidden');await loadAdmin()}else{$('#customerView').classList.remove('hidden');await loadCustomer()}
 }
 boot();
+
+// --- Nexus secure customer verification ---
+async function loadVerification(user, profile){
+  let host=document.getElementById('verificationPanel');
+  if(!host){
+    const accountCard=document.querySelector('#customerView .panel, #customerView .card, #customerView section');
+    if(!accountCard) return;
+    host=document.createElement('div');
+    host.id='verificationPanel';
+    host.className='verification-panel';
+    accountCard.insertAdjacentElement('afterend',host);
+  }
+
+  const {data:v,error}=await db.from('customer_verifications').select('*').eq('user_id',user.id).maybeSingle();
+  if(error){ host.innerHTML='<h2>Identity Verification</h2><p class="muted">Verification is not configured yet. An administrator must run the included Supabase setup SQL.</p>'; return; }
+
+  const status=(v?.status||'not_submitted').replaceAll('_',' ');
+  host.innerHTML=`
+    <div class="verification-head">
+      <div><span class="eyebrow">REQUIRED BEFORE RENTAL APPROVAL</span><h2>Identity Verification</h2></div>
+      <span class="verify-status">${escapeHtml(status.toUpperCase())}</span>
+    </div>
+    <p class="muted">Upload a valid driver's license and provide the required taxpayer identifier. Sensitive documents are stored in a private bucket and are not public.</p>
+    <form id="verificationForm" class="verification-form">
+      <div class="field-grid">
+        <label>Legal first name<input id="verifyFirst" required value="${escapeAttr(v?.legal_first_name||'')}"></label>
+        <label>Legal last name<input id="verifyLast" required value="${escapeAttr(v?.legal_last_name||'')}"></label>
+        <label>Street address<input id="verifyAddress" required value="${escapeAttr(v?.address_line1||'')}"></label>
+        <label>City<input id="verifyCity" required value="${escapeAttr(v?.city||'')}"></label>
+        <label>State<input id="verifyState" maxlength="2" required value="${escapeAttr(v?.state||'MI')}"></label>
+        <label>ZIP code<input id="verifyZip" required inputmode="numeric" value="${escapeAttr(v?.postal_code||'')}"></label>
+        <label>License number<input id="verifyLicense" required autocomplete="off" value="${escapeAttr(v?.license_number||'')}"></label>
+        <label>License state<input id="verifyLicenseState" maxlength="2" required value="${escapeAttr(v?.license_state||'MI')}"></label>
+        <label>License expiration<input id="verifyLicenseExp" type="date" required value="${escapeAttr(v?.license_expiration||'')}"></label>
+        <label>Verification type
+          <select id="verifyTaxType">
+            <option value="ssn" ${v?.tax_id_type==='ssn'?'selected':''}>Individual — SSN</option>
+            <option value="ein" ${v?.tax_id_type==='ein'?'selected':''}>Business — EIN</option>
+          </select>
+        </label>
+        <label>SSN or EIN<input id="verifyTaxId" required autocomplete="off" inputmode="numeric" placeholder="${v?.tax_id_last4?'Already submitted ••••'+escapeAttr(v.tax_id_last4):'Enter number'}"></label>
+      </div>
+      <div class="upload-grid">
+        <label class="upload-box">Driver's License — Front<input id="licenseFront" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"></label>
+        <label class="upload-box">Driver's License — Back<input id="licenseBack" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"></label>
+      </div>
+      <label class="consent"><input id="verifyConsent" type="checkbox" required> I certify this information belongs to me and is accurate. I authorize Nexus Equipment Rentals to review it for rental-account verification.</label>
+      <button class="btn primary" type="submit">Submit Verification</button>
+      <div id="verifyMsg" class="form-msg"></div>
+    </form>`;
+
+  document.getElementById('verificationForm').onsubmit=async ev=>{
+    ev.preventDefault();
+    const vm=document.getElementById('verifyMsg');
+    vm.textContent='Submitting securely…';
+    const taxRaw=document.getElementById('verifyTaxId').value.replace(/\D/g,'');
+    if(!taxRaw && !v?.tax_id_last4){vm.textContent='Enter an SSN or EIN.';return;}
+    const taxType=document.getElementById('verifyTaxType').value;
+    if(taxRaw && ((taxType==='ssn'&&taxRaw.length!==9)||(taxType==='ein'&&taxRaw.length!==9))){vm.textContent='SSN/EIN must contain 9 digits.';return;}
+
+    // For safety the browser does NOT store the full SSN/EIN in the database.
+    // Only last 4 is retained. Production identity verification should use a dedicated provider.
+    const payload={
+      user_id:user.id,
+      legal_first_name:document.getElementById('verifyFirst').value.trim(),
+      legal_last_name:document.getElementById('verifyLast').value.trim(),
+      address_line1:document.getElementById('verifyAddress').value.trim(),
+      city:document.getElementById('verifyCity').value.trim(),
+      state:document.getElementById('verifyState').value.trim().toUpperCase(),
+      postal_code:document.getElementById('verifyZip').value.trim(),
+      license_number:document.getElementById('verifyLicense').value.trim(),
+      license_state:document.getElementById('verifyLicenseState').value.trim().toUpperCase(),
+      license_expiration:document.getElementById('verifyLicenseExp').value,
+      tax_id_type:taxType,
+      tax_id_last4:taxRaw?taxRaw.slice(-4):v.tax_id_last4,
+      status:'under_review',
+      submitted_at:new Date().toISOString()
+    };
+    const {error:upErr}=await db.from('customer_verifications').upsert(payload,{onConflict:'user_id'});
+    if(upErr){vm.textContent=upErr.message;return;}
+
+    for(const [inputId,kind] of [['licenseFront','license_front'],['licenseBack','license_back']]){
+      const file=document.getElementById(inputId).files[0];
+      if(!file) continue;
+      if(file.size>8*1024*1024){vm.textContent='Each document must be 8 MB or smaller.';return;}
+      const ext=(file.name.split('.').pop()||'bin').toLowerCase();
+      const path=`${user.id}/${kind}.${ext}`;
+      const {error:stErr}=await db.storage.from('customer-verification-documents').upload(path,file,{upsert:true,contentType:file.type});
+      if(stErr){vm.textContent=stErr.message;return;}
+      const patch={user_id:user.id}; patch[kind+'_path']=path;
+      const {error:pErr}=await db.from('customer_verifications').upsert(patch,{onConflict:'user_id'});
+      if(pErr){vm.textContent=pErr.message;return;}
+    }
+    vm.textContent='Verification submitted. Nexus will review your account.';
+    await loadVerification(user,profile);
+  };
+}
+function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
+function escapeAttr(s){return escapeHtml(s);}
+
+db.auth.onAuthStateChange(async (event,session)=>{
+  if(session?.user){
+    setTimeout(async ()=>{
+      const {data:p}=await db.from('profiles').select('*').eq('id',session.user.id).maybeSingle();
+      if(p && !document.querySelector('#adminView:not([hidden])')) loadVerification(session.user,p);
+    },250);
+  }
+});
