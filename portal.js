@@ -30,10 +30,30 @@ $$('.admin-tab').forEach(b=>b.onclick=()=>{ $$('.admin-tab').forEach(x=>x.classL
 
 async function loadCustomer(){
  const {data:{user}}=await db.auth.getUser();
- const {data:p}=await db.from('profiles').select('*').eq('id',user.id).maybeSingle();
+ let {data:p}=await db.from('profiles').select('*').eq('id',user.id).maybeSingle();
+
+ // Backfill older accounts from Auth metadata when the profile row is missing name/phone.
+ const meta=user.user_metadata||{};
+ const patch={};
+ if(!p?.full_name && meta.full_name) patch.full_name=meta.full_name;
+ if((!p?.phone || p.phone===user.email) && meta.phone) patch.phone=meta.phone;
+ if(!p?.account_type && meta.account_type) patch.account_type=meta.account_type;
+ if(!p?.business_name && meta.business_name) patch.business_name=meta.business_name;
+ if(Object.keys(patch).length){
+   const {data:updated}=await db.from('profiles').update(patch).eq('id',user.id).select('*').maybeSingle();
+   if(updated) p=updated;
+ }
+
  const status=p?.approval_status||'pending';
  $('#customerStatus').textContent=status;
- $('#profileInfo').innerHTML=`<b>${esc(p?.full_name||user.email)}</b><br>${esc(p?.business_name||'Individual account')}<br>${esc(user.email)}`;
+ const displayName=p?.full_name||meta.full_name||'Name not added';
+ const displayPhone=(p?.phone && p.phone!==user.email)?p.phone:(meta.phone||'Phone not added');
+ const acct=(p?.account_type||meta.account_type||'individual')==='business'
+   ? (p?.business_name||meta.business_name||'Business account')
+   : 'Individual account';
+ $('#profileInfo').innerHTML=`<b>${esc(displayName)}</b><br>${esc(acct)}<br>${esc(user.email)}<br>${esc(displayPhone)}`;
+
+ await loadVerification(user,p||{});
  await loadCustomerEquipment(status==='approved');
  const {data:r}=await db.from('rental_requests').select('id,start_date,end_date,status,equipment(name)').eq('customer_id',user.id).order('created_at',{ascending:false});
  $('#myRentals').innerHTML=r?.length?r.map(x=>`<div class="notice"><b>${esc(x.equipment?.name||'Equipment')}</b><br>${x.start_date} → ${x.end_date}<br><span class="status">${esc(x.status)}</span></div>`).join(''):'No rental requests yet.'
@@ -74,7 +94,7 @@ function renderStats(){
 function renderCustomers(){
  const q=($('#customerSearch')?.value||'').toLowerCase();
  const rows=adminCustomers.filter(x=>[x.full_name,x.email,x.business_name,x.phone].some(v=>String(v||'').toLowerCase().includes(q)));
- $('#customerTable').innerHTML=`<table class="admin-table"><thead><tr><th>Customer</th><th>Type</th><th>Status</th><th>Phone</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>`<tr><td><b>${esc(x.full_name||'No name')}</b><small>${esc(x.email||'')}</small>${x.business_name?`<small>${esc(x.business_name)}</small>`:''}</td><td>${esc(x.account_type||'individual')}</td><td><span class="status">${esc(x.approval_status)}</span></td><td>${esc(x.phone||'—')}</td><td><div class="admin-actions"><button class="small-btn red" onclick="setCustomer('${x.id}','approved')">Approve</button><button class="small-btn" onclick="setCustomer('${x.id}','more_info')">More Info</button><button class="small-btn" onclick="setCustomer('${x.id}','rejected')">Reject</button></div></td></tr>`).join('')}</tbody></table>`
+ $('#customerTable').innerHTML=`<table class="admin-table"><thead><tr><th>Customer</th><th>Type</th><th>Status</th><th>Phone</th><th>Actions</th></tr></thead><tbody>${rows.map(x=>`<tr><td><b>${esc(x.full_name||'Name not provided')}</b><small>${esc(x.email||'')}</small>${x.business_name?`<small>${esc(x.business_name)}</small>`:''}</td><td>${esc(x.account_type||'individual')}</td><td><span class="status">${esc(x.approval_status)}</span></td><td>${esc(x.phone||'Phone not provided')}</td><td><div class="admin-actions"><button class="small-btn red" onclick="setCustomer('${x.id}','approved')">Approve</button><button class="small-btn" onclick="setCustomer('${x.id}','more_info')">More Info</button><button class="small-btn" onclick="setCustomer('${x.id}','rejected')">Reject</button></div></td></tr>`).join('')}</tbody></table>`
 }
 $('#customerSearch').oninput=renderCustomers;
 window.setCustomer=async(id,status)=>{const {error}=await db.from('profiles').update({approval_status:status}).eq('id',id);if(error)return msg(error.message);msg('Customer status updated.');loadAdmin()};
@@ -122,7 +142,10 @@ async function loadVerification(user, profile){
   }
 
   const {data:v,error}=await db.from('customer_verifications').select('*').eq('user_id',user.id).maybeSingle();
-  if(error){ host.innerHTML='<h2>Identity Verification</h2><p class="muted">Verification is not configured yet. An administrator must run the included Supabase setup SQL.</p>'; return; }
+  if(error){
+    host.innerHTML=`<div class="verification-head"><div><span class="eyebrow">REQUIRED BEFORE RENTAL APPROVAL</span><h2>Identity Verification</h2></div><span class="verify-status">SETUP REQUIRED</span></div><p class="muted">The verification database is not connected yet. Run <b>SUPABASE-VERIFICATION-SETUP.sql</b> in Supabase SQL Editor, then refresh this page.</p>`;
+    return;
+  }
 
   const status=(v?.status||'not_submitted').replaceAll('_',' ');
   host.innerHTML=`
