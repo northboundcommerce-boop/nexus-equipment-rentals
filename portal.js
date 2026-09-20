@@ -1148,16 +1148,7 @@ window.sendAdminCustomerChat=async customerId=>{
 };
 
 // Inject admin chat into every opened customer-profile modal without disturbing existing profile actions.
-document.addEventListener('click',e=>{
- const b=e.target.closest('[onclick*="openCustomerProfile"]');if(!b)return;
- setTimeout(()=>{
-  const modal=[...document.querySelectorAll('.modal,.modal-card,.modal-content')].find(x=>x.offsetParent!==null);
-  if(!modal||document.getElementById('adminCustomerChat'))return;
-  const m=(b.getAttribute('onclick')||'').match(/openCustomerProfile\(['"]([^'"]+)/);if(!m)return;
-  const sec=document.createElement('section');sec.className='admin-chat-section';sec.innerHTML='<h2>Customer Messages</h2><div id="adminCustomerChat"></div>';
-  modal.appendChild(sec);loadAdminCustomerChat(m[1]);
- },350);
-},true);
+
 
 (function(){if(document.getElementById('nexusChatStyles'))return;const st=document.createElement('style');st.id='nexusChatStyles';st.textContent=`
 .nexus-chat-card,.admin-chat-section{margin-top:22px;padding:16px;border:1px solid #303038;border-radius:10px;background:#0b0b0e}.chat-title{font-size:10px;font-weight:900;letter-spacing:.16em;color:#ff2733;margin-bottom:12px}.chat-thread{max-height:310px;overflow:auto;padding:5px;display:flex;flex-direction:column;gap:10px}.chat-msg{max-width:82%;padding:10px 12px;border-radius:10px;border:1px solid #333;line-height:1.4}.chat-msg.from-admin{align-self:flex-start;background:#17171b}.chat-msg.from-customer{align-self:flex-end;background:#2b1014;border-color:#6c2028}.chat-who{font-size:9px;font-weight:900;letter-spacing:.1em;color:#ff303b;margin-bottom:4px}.chat-msg small{display:block;color:#777;margin-top:6px;font-size:9px}.chat-compose{display:flex;gap:9px;margin-top:12px}.chat-compose textarea{flex:1;min-height:60px;resize:vertical;background:#09090b;color:#fff;border:1px solid #34343a;border-radius:8px;padding:10px}.admin-chat-section{margin:20px}`;
@@ -1274,3 +1265,26 @@ document.addEventListener('click',e=>{
  },400);
 },true);
 (function(){const st=document.createElement('style');st.textContent=`.nexus-payments-card{margin-top:24px;padding:20px;border:1px solid #303038;border-radius:11px;background:#0b0b0e}.payment-kicker{font-size:10px;font-weight:900;letter-spacing:.15em;color:#ff2633}.payment-row{display:grid;grid-template-columns:minmax(180px,1fr) auto auto auto;gap:14px;align-items:center;padding:14px 0;border-top:1px solid #29292f}.payment-row small{display:block;color:#888;margin-top:4px}.payment-amount{font-size:18px;font-weight:900}.payment-modal{width:min(560px,94vw);background:#0c0c0f;border:1px solid #34343a;border-radius:13px;padding:28px;position:relative}.payment-modal label{display:block;margin:14px 0;font-weight:700}.payment-modal input,.payment-modal select,.payment-modal textarea{width:100%;box-sizing:border-box;margin-top:7px;background:#08080a;color:#fff;border:1px solid #34343a;border-radius:7px;padding:12px}.payment-modal textarea{min-height:90px}@media(max-width:650px){.payment-row{grid-template-columns:1fr auto}.payment-row button{grid-column:1/-1}}`;document.head.appendChild(st)})();
+
+
+// Reliable Admin -> Customer Profile payment button.
+// Wraps openCustomerProfile itself instead of trying to guess which modal was clicked.
+(function installPaymentProfileButton(){
+ const original=window.openCustomerProfile;
+ if(typeof original!=='function')return;
+ window.openCustomerProfile=async function(customerId,...args){
+   const result=await original.call(this,customerId,...args);
+   setTimeout(()=>{
+     const visible=[...document.querySelectorAll('.modal,.modal-card,.modal-content,[role="dialog"]')].filter(x=>x.offsetParent!==null);
+     const host=visible[visible.length-1]||document.querySelector('.modal:not(.hidden)')||document.body;
+     if(host.querySelector?.('.send-payment-profile'))return;
+     const section=document.createElement('div');
+     section.className='profile-payment-action';
+     section.innerHTML=`<div><span class="payment-kicker">NEXUS PAYMENTS</span><h3>Collect Payment</h3><p>Send this customer a secure online payment request.</p></div><button type="button" class="small-btn red send-payment-profile">Send Payment Request</button>`;
+     section.querySelector('button').addEventListener('click',()=>window.openPaymentRequest(customerId));
+     host.appendChild(section);
+   },250);
+   return result;
+ };
+})();
+(function(){const st=document.createElement('style');st.textContent=`.profile-payment-action{display:flex;align-items:center;justify-content:space-between;gap:18px;margin:22px 0 4px;padding:17px;border:1px solid #4a2529;border-radius:9px;background:linear-gradient(135deg,#160d0f,#0c0c0f)}.profile-payment-action h3{margin:4px 0}.profile-payment-action p{margin:0;color:#8e8e96;font-size:12px}@media(max-width:600px){.profile-payment-action{align-items:stretch;flex-direction:column}.profile-payment-action button{width:100%}}`;document.head.appendChild(st)})();
