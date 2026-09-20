@@ -55,8 +55,22 @@ async function loadCustomer(){
  $('#profileInfo').innerHTML=`<b>${esc(p?.full_name||user.email)}</b><br>${esc(p?.business_name||'Individual account')}<br>${esc(user.email)}`;
  await loadCustomerEquipment(status==='approved');
  const {data:r}=await db.from('rental_requests').select('id,start_date,end_date,status,equipment(name)').eq('customer_id',user.id).order('created_at',{ascending:false});
- $('#myRentals').innerHTML=r?.length?r.map(x=>`<div class="notice"><b>${esc(x.equipment?.name||'Equipment')}</b><br>${x.start_date} → ${x.end_date}<br><span class="status">${esc(x.status)}</span></div>`).join(''):'No rental requests yet.'
+ $('#myRentals').innerHTML=r?.length?r.map(x=>`<div class="notice client-rental-row"><div class="client-rental-info"><b>${esc(x.equipment?.name||'Equipment')}</b><br>${x.start_date} → ${x.end_date}<br><span class="status">${esc(x.status)}</span></div>${['pending','approved'].includes(x.status)?`<button class="client-cancel-x" onclick="cancelMyRental('${x.id}','${esc(x.equipment?.name||'Equipment')}')" title="Cancel rental request" aria-label="Cancel rental request">×</button>`:''}</div>`).join(''):'No rental requests yet.'
 }
+
+window.cancelMyRental=async(id,name)=>{
+ if(!confirm(`Cancel your ${name} rental request?`))return;
+ const {data:{user}}=await db.auth.getUser();
+ const {data:r,error:readError}=await db.from('rental_requests').select('id,status,customer_id').eq('id',id).eq('customer_id',user.id).maybeSingle();
+ if(readError)return msg(readError.message);
+ if(!r)return msg('Rental request not found.');
+ if(!['pending','approved'].includes(r.status))return msg('This rental can no longer be cancelled online. Please contact Nexus.');
+ const {error}=await db.from('rental_requests').update({status:'cancelled'}).eq('id',id).eq('customer_id',user.id);
+ if(error)return msg(error.message);
+ msg('Rental request cancelled.');
+ await loadCustomer();
+};
+
 async function loadCustomerEquipment(approved){
  const {data}=await db.from('equipment').select('*').neq('status','inactive').order('created_at',{ascending:false});
  $('#customerEquipment').innerHTML=data?.length?data.map(x=>eqCard(x,false,approved)).join(''):'<div class="equipment-item">No equipment added yet.</div>'
@@ -274,6 +288,18 @@ boot();
  .date-check-message{margin:0 0 15px;padding:11px 13px;border:1px solid #333;border-radius:7px;color:#aaa;background:#0a0a0c}.date-check-message.available{border-color:#225d3c;color:#67dc94;background:#0c2015}.date-check-message.unavailable{border-color:#70272c;color:#ff777e;background:#251013}
  .rental-summary{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:18px 0;padding:15px;border:1px solid #2b2b31;border-radius:9px;background:#09090b}.rental-summary div{display:flex;justify-content:space-between;gap:12px}.rental-summary span{color:#888}.rental-agree{display:flex!important;align-items:flex-start;gap:9px;margin:16px 0;line-height:1.45}.rental-agree input{width:auto!important;margin-top:2px!important}.rental-submit{width:100%;padding:14px!important}.rental-submit:disabled{opacity:.45;cursor:not-allowed}
  @media(max-width:620px){.rental-form-grid,.rental-summary{grid-template-columns:1fr}.blocked-date-row{grid-template-columns:1fr 1fr}.blocked-date-row span{display:none}.rental-form-card{padding:24px 15px}}
+ `;
+ document.head.appendChild(s);
+})();
+
+(function addClientCancelStyles(){
+ if(document.getElementById('nexusClientCancelStyles'))return;
+ const s=document.createElement('style');s.id='nexusClientCancelStyles';
+ s.textContent=`
+ .client-rental-row{position:relative;display:flex!important;justify-content:space-between;align-items:flex-start;gap:14px;padding-right:16px!important}
+ .client-rental-info{min-width:0}
+ .client-cancel-x{flex:0 0 32px;width:32px;height:32px;border:1px solid #6c292e;border-radius:7px;background:#211013;color:#ff656d;font-size:23px;line-height:27px;font-weight:400;cursor:pointer;transition:.18s ease}
+ .client-cancel-x:hover{background:#ed1c24;border-color:#ed1c24;color:#fff;transform:scale(1.05)}
  `;
  document.head.appendChild(s);
 })();
