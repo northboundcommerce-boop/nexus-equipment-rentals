@@ -81,7 +81,7 @@ async function loadCustomer(){
  if(error){msg(error.message);return}
  $('#myRentals').innerHTML=r?.length?r.map(x=>{
    const cancellable=['pending','approved','contract_required','confirmed'].includes(x.status);
-   const action=x.status==='contract_required'
+   const action=['approved','contract_required'].includes(x.status)
      ? `<button class="small-btn red contract-sign-btn" onclick="openRentalContract('${x.id}')">Review & Sign Contract</button>`
      : ['confirmed','active','completed'].includes(x.status)
        ? `<div class="customer-signed-contract-actions"><small class="contract-signed-note">✓ Contract signed</small><button class="small-btn" onclick="viewMySignedContract('${x.id}')">View Contract</button><button class="small-btn" onclick="downloadMySignedContract('${x.id}')">Download Copy</button></div>`:'';
@@ -650,7 +650,7 @@ window.openRentalContract=async id=>{
  const {data:{user}}=await db.auth.getUser();
  const {data:r,error}=await db.from('rental_requests').select('*').eq('id',id).eq('customer_id',user.id).maybeSingle();
  if(error)return msg(error.message);if(!r)return msg('Rental request not found.');
- if(r.status!=='contract_required')return msg('This rental is not awaiting a contract.');
+ if(!['approved','contract_required'].includes(r.status))return msg('This rental is not awaiting a contract.');
  const [{data:p},{data:v},{data:eq},{data:t}]=await Promise.all([
   db.from('profiles').select('*').eq('id',user.id).maybeSingle(),
   db.from('customer_verifications').select('*').eq('user_id',user.id).maybeSingle(),
@@ -685,7 +685,7 @@ window.signRentalContract=async id=>{
  if(!signature)return msg('Type your full legal name as your electronic signature.');
  const {data:{user}}=await db.auth.getUser();
  const {data:r,error:re}=await db.from('rental_requests').select('*').eq('id',id).eq('customer_id',user.id).maybeSingle();
- if(re||!r)return msg(re?.message||'Rental request not found.');if(r.status!=='contract_required')return msg('This contract is no longer available for signing.');
+ if(re||!r)return msg(re?.message||'Rental request not found.');if(!['approved','contract_required'].includes(r.status))return msg('This contract is no longer available for signing.');
  const [{data:p},{data:v},{data:eq}]=await Promise.all([db.from('profiles').select('*').eq('id',user.id).maybeSingle(),db.from('customer_verifications').select('*').eq('user_id',user.id).maybeSingle(),db.from('equipment').select('*').eq('id',r.equipment_id).maybeSingle()]);
  const modal=document.getElementById('rentalContractModal'),signedAt=new Date().toISOString(),version=modal?.dataset.templateVersion||'1.0';
  const snapshot={version,template_id:modal?.dataset.templateId||null,template_name:modal?.dataset.templateName||'Nexus Equipment Rental Agreement',template_storage_path:modal?.dataset.templatePath||null,customer_name:signature,customer_email:p?.email||user.email,customer_phone:p?.phone||null,customer_address:[v?.address_line1,v?.city,v?.state,v?.postal_code].filter(Boolean).join(', '),equipment_name:eq?.name||'Equipment',start_date:r.start_date,end_date:r.end_date,daily_rate:eq?.daily_rate??null,weekly_rate:eq?.weekly_rate??null,deposit:eq?.deposit??null,terms_version:version};
