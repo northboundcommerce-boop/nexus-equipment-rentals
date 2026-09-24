@@ -640,7 +640,7 @@ function ensureAdminManagement(settingsPanel){
  card.id='nexusAdminManagement';card.className='nexus-admin-management-card';
  card.innerHTML=`<div class="nam-head"><div><span class="nexus-install-kicker">ACCESS CONTROL</span><h3>Administrator Management</h3><p>Add existing Nexus accounts as administrators or remove admin access.</p></div></div>
  <div class="nam-add"><input id="namEmail" type="email" autocomplete="email" placeholder="admin@example.com"><button id="namAdd" type="button">+ Add Administrator</button></div>
- <div id="namMessage" class="nam-message"></div><div id="namList" class="nam-list"><div class="nam-loading">Loading administrators…</div></div>`;
+ <div id="namMessage" class="nam-message"></div><div class="nam-current-head"><b>Current Administrators</b><span id="namCount">0 admins</span></div><div id="namList" class="nam-list"><div class="nam-loading">Loading administrators…</div></div>`;
  settingsPanel.appendChild(card);
  document.getElementById('namAdd').onclick=addNexusAdministrator;
  loadNexusAdministrators();
@@ -658,8 +658,14 @@ function namSay(text,bad=false){const el=document.getElementById('namMessage');i
 async function loadNexusAdministrators(){
  const list=document.getElementById('namList');if(!list)return;
  try{
-  const o=await nexusAdminApi('/api/admin-users');
-  list.innerHTML=(o.admins||[]).map(a=>`<div class="nam-row"><div><b>${esc(a.full_name||a.email||'Administrator')}</b><small>${esc(a.email||a.user_id)}</small></div><button type="button" class="nam-remove" data-id="${esc(a.user_id)}" ${o.admins.length<=1?'disabled':''}>Remove</button></div>`).join('')||'<div class="nam-loading">No administrators found.</div>';
+  const [{data:{user}},o]=await Promise.all([db.auth.getUser(),nexusAdminApi('/api/admin-users')]);
+  const admins=o.admins||[];
+  const count=document.getElementById('namCount');if(count)count.textContent=`${admins.length} admin${admins.length===1?'':'s'}`;
+  list.innerHTML=admins.map(a=>{
+   const current=a.user_id===user?.id;
+   const joined=a.created_at?new Date(a.created_at).toLocaleDateString():'';
+   return `<div class="nam-row"><div class="nam-admin-info"><div class="nam-admin-title"><b>${esc(a.full_name||a.email||'Administrator')}</b>${current?'<span class="nam-you">YOU</span>':''}</div><small>${esc(a.email||a.user_id)}</small><span class="nam-role">Administrator${joined?` • Added ${esc(joined)}`:''}</span></div>${current?'<span class="nam-current">Current account</span>':`<button type="button" class="nam-remove" data-id="${esc(a.user_id)}" ${admins.length<=1?'disabled':''}>Remove</button>`}</div>`;
+  }).join('')||'<div class="nam-loading">No administrators found.</div>';
   list.querySelectorAll('.nam-remove').forEach(b=>b.onclick=()=>removeNexusAdministrator(b.dataset.id));
  }catch(e){list.innerHTML=`<div class="nam-loading">${esc(e.message)}</div>`}
 }
@@ -674,7 +680,7 @@ async function removeNexusAdministrator(userId){
  namSay('Removing administrator…');
  try{await nexusAdminApi('/api/admin-users',{method:'DELETE',body:JSON.stringify({user_id:userId})});namSay('✓ Administrator removed.');await loadNexusAdministrators()}catch(e){namSay(e.message,true)}
 }
-(function(){const st=document.createElement('style');st.textContent=`.nexus-admin-management-card{margin:18px 0;padding:20px;border:1px solid #30262a;border-radius:14px;background:linear-gradient(145deg,#0b0b0d,#111114);color:#fff}.nam-head h3{margin:4px 0 5px;font-size:22px}.nam-head p{margin:0;color:#aaa;font-size:13px}.nam-add{display:flex;gap:10px;margin:18px 0 10px}.nam-add input{flex:1;min-width:0;background:#09090b;border:1px solid #333;color:#fff;padding:12px;border-radius:8px}.nam-add button{border:0;border-radius:8px;background:#ed1c2b;color:#fff;padding:11px 15px;font-weight:900;cursor:pointer}.nam-add button:disabled{opacity:.55}.nam-message{min-height:18px;color:#60d394;font-size:12px;font-weight:800}.nam-message.bad{color:#ff6673}.nam-list{margin-top:10px;border-top:1px solid #29292d}.nam-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;border-bottom:1px solid #222227}.nam-row b,.nam-row small{display:block}.nam-row small{margin-top:3px;color:#888}.nam-remove{background:#17171b;color:#fff;border:1px solid #3a3a40;border-radius:8px;padding:8px 11px;cursor:pointer}.nam-remove:disabled{opacity:.35;cursor:not-allowed}.nam-loading{padding:14px 0;color:#888}@media(max-width:700px){.nam-add{flex-direction:column}.nam-add button{width:100%}}`;document.head.appendChild(st)})();
+(function(){const st=document.createElement('style');st.textContent=`.nexus-admin-management-card{margin:18px 0;padding:20px;border:1px solid #30262a;border-radius:14px;background:linear-gradient(145deg,#0b0b0d,#111114);color:#fff}.nam-head h3{margin:4px 0 5px;font-size:22px}.nam-head p{margin:0;color:#aaa;font-size:13px}.nam-add{display:flex;gap:10px;margin:18px 0 10px}.nam-add input{flex:1;min-width:0;background:#09090b;border:1px solid #333;color:#fff;padding:12px;border-radius:8px}.nam-add button{border:0;border-radius:8px;background:#ed1c2b;color:#fff;padding:11px 15px;font-weight:900;cursor:pointer}.nam-add button:disabled{opacity:.55}.nam-message{min-height:18px;color:#60d394;font-size:12px;font-weight:800}.nam-message.bad{color:#ff6673}.nam-current-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:20px;padding:12px 0 8px;border-top:1px solid #29292d}.nam-current-head b{font-size:14px}.nam-current-head span{color:#888;font-size:12px}.nam-list{margin-top:0;border-top:1px solid #29292d}.nam-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;border-bottom:1px solid #222227}.nam-row b,.nam-row small{display:block}.nam-admin-info{min-width:0}.nam-admin-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.nam-you{font-size:9px;letter-spacing:.12em;color:#fff;background:#ed1c2b;border-radius:999px;padding:3px 6px}.nam-role{display:block;margin-top:5px;color:#b8b8bd;font-size:11px}.nam-current{color:#777;font-size:11px;font-weight:800;white-space:nowrap}.nam-row small{margin-top:3px;color:#888}.nam-remove{background:#17171b;color:#fff;border:1px solid #3a3a40;border-radius:8px;padding:8px 11px;cursor:pointer}.nam-remove:disabled{opacity:.35;cursor:not-allowed}.nam-loading{padding:14px 0;color:#888}@media(max-width:700px){.nam-add{flex-direction:column}.nam-add button{width:100%}}`;document.head.appendChild(st)})();
 
 async function loadAdmin(){
  ensureAdminPushControls();
