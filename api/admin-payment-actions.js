@@ -31,13 +31,14 @@ export default async function handler(req,res){
     if(!payment) return res.status(404).json({error:'Payment request not found.'});
     if(payment.status==='paid') return res.status(409).json({error:'Paid payments cannot be cancelled or removed. Keep them for payment history.'});
     if(action==='cancel'){
-      if(payment.status!=='pending') return res.status(409).json({error:`Only pending payments can be cancelled. This payment is ${payment.status}.`});
-      const {error}=await sb.from('payment_requests').update({status:'cancelled'}).eq('id',paymentId).eq('status','pending');
+      if(['cancelled','failed'].includes(payment.status)) return res.status(200).json({ok:true,status:payment.status});
+      const {error}=await sb.from('payment_requests').update({status:'cancelled'}).eq('id',paymentId).neq('status','paid');
       if(error) throw error;
       return res.status(200).json({ok:true,status:'cancelled'});
     }
-    if(!['cancelled','failed'].includes(payment.status)) return res.status(409).json({error:'Only cancelled or failed payments can be removed.'});
-    const {error}=await sb.from('payment_requests').delete().eq('id',paymentId).in('status',['cancelled','failed']);
+    // Remove any UNPAID request from the Payment Center. Paid records are protected above.
+    // This also lets admins clean up an old pending/unpaid request in one click.
+    const {error}=await sb.from('payment_requests').delete().eq('id',paymentId).neq('status','paid');
     if(error) throw error;
     return res.status(200).json({ok:true,removed:true});
   }catch(e){
