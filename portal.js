@@ -497,7 +497,10 @@ async function saveNexusNotificationSettings(){
  }catch(e){msg(e.message)}
 }
 async function testNexusNotification(){
- try{await saveNexusNotificationSettings();const {data:{session}}=await db.auth.getSession();const r=await fetch('/api/test-admin-notification',{method:'POST',headers:{Authorization:`Bearer ${session.access_token}`}});const o=await r.json();if(!r.ok)throw new Error(o.error||'Test failed.');msg(`Test sent. Push: ${o.push_sent||0}${o.email_sent?' • Email: sent':''}`)}catch(e){msg(e.message)}
+ try{await saveNexusNotificationSettings();const {data:{session}}=await db.auth.getSession();const r=await fetch('/api/test-admin-notification',{method:'POST',headers:{Authorization:`Bearer ${session.access_token}`}});
+  const raw=await r.text();let o={};try{o=raw?JSON.parse(raw):{}}catch(_){o={error:raw||'Server returned an invalid response.'}}
+  if(!r.ok)throw new Error(o.error||`Notification test failed (${r.status}).`);
+  msg(`Test sent. Push: ${o.push_sent||0}${o.email_sent?' • Email: sent':''}`)}catch(e){msg(e.message)}
 }
 async function enableNexusAdminPush(){
  try{
