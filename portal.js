@@ -603,7 +603,7 @@ function nexusActivateAdminTab(btn,panel){
 }
 function installAdminUtilityTabs(){
  const admin=document.getElementById('adminView');
- const tabbar=admin?.querySelector('.admin-tabs');
+ const tabbar=admin?.querySelector('.admin-sidebar');
  if(!admin||!tabbar)return;
  let notificationsPanel=document.getElementById('tab-notifications');
  let settingsPanel=document.getElementById('tab-settings');
@@ -615,7 +615,9 @@ function installAdminUtilityTabs(){
   notificationsPanel.innerHTML='<div class="nexus-utility-head"><p class="nexus-kicker">ADMIN ALERTS</p><h2>Notifications</h2><p>Manage push and email alerts for Nexus activity.</p></div>';
   settingsPanel=document.createElement('section');settingsPanel.id='tab-settings';settingsPanel.className='admin-panel nexus-utility-panel';
   settingsPanel.innerHTML='<div class="nexus-utility-head"><p class="nexus-kicker">ADMIN SETTINGS</p><h2>Settings</h2><p>Manage the Nexus admin app and device settings.</p></div>';
-  admin.appendChild(notificationsPanel);admin.appendChild(settingsPanel);
+  const content=admin.querySelector('.admin-content');
+  if(!content)return;
+  content.appendChild(notificationsPanel);content.appendChild(settingsPanel);
   nbtn.onclick=()=>nexusActivateAdminTab(nbtn,notificationsPanel);
   sbtn.onclick=()=>nexusActivateAdminTab(sbtn,settingsPanel);
  }
