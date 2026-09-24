@@ -623,12 +623,58 @@ function installAdminUtilityTabs(){
  }
  const nc=document.getElementById('nexusNotificationCenter');if(nc&&nc.parentElement!==notificationsPanel)notificationsPanel.appendChild(nc);
  const app=document.getElementById('nexusAdminInstallCard');if(app&&app.parentElement!==settingsPanel)settingsPanel.appendChild(app);
+ ensureAdminManagement(settingsPanel);
 }
 (function(){
  const st=document.createElement('style');
  st.textContent=`.nexus-admin-nav-divider{height:1px;background:#2a2a2f;margin:10px 8px}.nexus-utility-panel{padding-top:6px}.nexus-utility-head{margin:0 0 18px}.nexus-utility-head h2{font-size:30px;margin:4px 0 5px}.nexus-utility-head p:last-child{color:#8f8f96;margin:0}.nexus-utility-panel .nexus-notification-center,.nexus-utility-panel .nexus-admin-install-card{margin-top:0}`;
  document.head.appendChild(st);
 })();
+
+
+
+// ===== ADMIN MANAGEMENT =====
+function ensureAdminManagement(settingsPanel){
+ if(!settingsPanel||document.getElementById('nexusAdminManagement'))return;
+ const card=document.createElement('section');
+ card.id='nexusAdminManagement';card.className='nexus-admin-management-card';
+ card.innerHTML=`<div class="nam-head"><div><span class="nexus-install-kicker">ACCESS CONTROL</span><h3>Administrator Management</h3><p>Add existing Nexus accounts as administrators or remove admin access.</p></div></div>
+ <div class="nam-add"><input id="namEmail" type="email" autocomplete="email" placeholder="admin@example.com"><button id="namAdd" type="button">+ Add Administrator</button></div>
+ <div id="namMessage" class="nam-message"></div><div id="namList" class="nam-list"><div class="nam-loading">Loading administrators…</div></div>`;
+ settingsPanel.appendChild(card);
+ document.getElementById('namAdd').onclick=addNexusAdministrator;
+ loadNexusAdministrators();
+}
+async function nexusAdminApi(path,options={}){
+ const {data:{session}}=await db.auth.getSession();
+ if(!session)throw new Error('Please sign in again.');
+ const headers={...(options.headers||{}),Authorization:`Bearer ${session.access_token}`};
+ if(options.body&&!headers['Content-Type'])headers['Content-Type']='application/json';
+ const r=await fetch(path,{...options,headers});
+ let o={};try{o=await r.json()}catch{o={error:'The server returned an invalid response.'}}
+ if(!r.ok)throw new Error(o.error||'Administrator request failed.');return o;
+}
+function namSay(text,bad=false){const el=document.getElementById('namMessage');if(!el)return;el.textContent=text||'';el.classList.toggle('bad',!!bad)}
+async function loadNexusAdministrators(){
+ const list=document.getElementById('namList');if(!list)return;
+ try{
+  const o=await nexusAdminApi('/api/admin-users');
+  list.innerHTML=(o.admins||[]).map(a=>`<div class="nam-row"><div><b>${esc(a.full_name||a.email||'Administrator')}</b><small>${esc(a.email||a.user_id)}</small></div><button type="button" class="nam-remove" data-id="${esc(a.user_id)}" ${o.admins.length<=1?'disabled':''}>Remove</button></div>`).join('')||'<div class="nam-loading">No administrators found.</div>';
+  list.querySelectorAll('.nam-remove').forEach(b=>b.onclick=()=>removeNexusAdministrator(b.dataset.id));
+ }catch(e){list.innerHTML=`<div class="nam-loading">${esc(e.message)}</div>`}
+}
+async function addNexusAdministrator(){
+ const input=document.getElementById('namEmail'),button=document.getElementById('namAdd');const email=(input?.value||'').trim();
+ if(!email)return namSay('Enter the email address of an existing Nexus account.',true);
+ button.disabled=true;namSay('Adding administrator…');
+ try{await nexusAdminApi('/api/admin-users',{method:'POST',body:JSON.stringify({email})});input.value='';namSay('✓ Administrator added.');await loadNexusAdministrators()}catch(e){namSay(e.message,true)}finally{button.disabled=false}
+}
+async function removeNexusAdministrator(userId){
+ if(!confirm('Remove administrator access from this account?'))return;
+ namSay('Removing administrator…');
+ try{await nexusAdminApi('/api/admin-users',{method:'DELETE',body:JSON.stringify({user_id:userId})});namSay('✓ Administrator removed.');await loadNexusAdministrators()}catch(e){namSay(e.message,true)}
+}
+(function(){const st=document.createElement('style');st.textContent=`.nexus-admin-management-card{margin:18px 0;padding:20px;border:1px solid #30262a;border-radius:14px;background:linear-gradient(145deg,#0b0b0d,#111114);color:#fff}.nam-head h3{margin:4px 0 5px;font-size:22px}.nam-head p{margin:0;color:#aaa;font-size:13px}.nam-add{display:flex;gap:10px;margin:18px 0 10px}.nam-add input{flex:1;min-width:0;background:#09090b;border:1px solid #333;color:#fff;padding:12px;border-radius:8px}.nam-add button{border:0;border-radius:8px;background:#ed1c2b;color:#fff;padding:11px 15px;font-weight:900;cursor:pointer}.nam-add button:disabled{opacity:.55}.nam-message{min-height:18px;color:#60d394;font-size:12px;font-weight:800}.nam-message.bad{color:#ff6673}.nam-list{margin-top:10px;border-top:1px solid #29292d}.nam-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;border-bottom:1px solid #222227}.nam-row b,.nam-row small{display:block}.nam-row small{margin-top:3px;color:#888}.nam-remove{background:#17171b;color:#fff;border:1px solid #3a3a40;border-radius:8px;padding:8px 11px;cursor:pointer}.nam-remove:disabled{opacity:.35;cursor:not-allowed}.nam-loading{padding:14px 0;color:#888}@media(max-width:700px){.nam-add{flex-direction:column}.nam-add button{width:100%}}`;document.head.appendChild(st)})();
 
 async function loadAdmin(){
  ensureAdminPushControls();
