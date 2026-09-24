@@ -595,9 +595,43 @@ function ensureAdminInstallAppButton(){
   document.head.appendChild(st);
 })();
 
+// ===== CLEAN ADMIN NAV: NOTIFICATIONS + SETTINGS =====
+function nexusActivateAdminTab(btn,panel){
+ $$('.admin-tab').forEach(x=>x.classList.remove('active'));
+ $$('.admin-panel').forEach(x=>x.classList.remove('active'));
+ btn.classList.add('active');panel.classList.add('active');
+}
+function installAdminUtilityTabs(){
+ const admin=document.getElementById('adminView');
+ const tabbar=admin?.querySelector('.admin-tabs');
+ if(!admin||!tabbar)return;
+ let notificationsPanel=document.getElementById('tab-notifications');
+ let settingsPanel=document.getElementById('tab-settings');
+ if(!notificationsPanel){
+  const divider=document.createElement('div');divider.className='nexus-admin-nav-divider';tabbar.appendChild(divider);
+  const nbtn=document.createElement('button');nbtn.className='admin-tab';nbtn.dataset.tab='notifications';nbtn.textContent='Notifications';tabbar.appendChild(nbtn);
+  const sbtn=document.createElement('button');sbtn.className='admin-tab';sbtn.dataset.tab='settings';sbtn.textContent='Settings';tabbar.appendChild(sbtn);
+  notificationsPanel=document.createElement('section');notificationsPanel.id='tab-notifications';notificationsPanel.className='admin-panel nexus-utility-panel';
+  notificationsPanel.innerHTML='<div class="nexus-utility-head"><p class="nexus-kicker">ADMIN ALERTS</p><h2>Notifications</h2><p>Manage push and email alerts for Nexus activity.</p></div>';
+  settingsPanel=document.createElement('section');settingsPanel.id='tab-settings';settingsPanel.className='admin-panel nexus-utility-panel';
+  settingsPanel.innerHTML='<div class="nexus-utility-head"><p class="nexus-kicker">ADMIN SETTINGS</p><h2>Settings</h2><p>Manage the Nexus admin app and device settings.</p></div>';
+  admin.appendChild(notificationsPanel);admin.appendChild(settingsPanel);
+  nbtn.onclick=()=>nexusActivateAdminTab(nbtn,notificationsPanel);
+  sbtn.onclick=()=>nexusActivateAdminTab(sbtn,settingsPanel);
+ }
+ const nc=document.getElementById('nexusNotificationCenter');if(nc&&nc.parentElement!==notificationsPanel)notificationsPanel.appendChild(nc);
+ const app=document.getElementById('nexusAdminInstallCard');if(app&&app.parentElement!==settingsPanel)settingsPanel.appendChild(app);
+}
+(function(){
+ const st=document.createElement('style');
+ st.textContent=`.nexus-admin-nav-divider{height:1px;background:#2a2a2f;margin:10px 8px}.nexus-utility-panel{padding-top:6px}.nexus-utility-head{margin:0 0 18px}.nexus-utility-head h2{font-size:30px;margin:4px 0 5px}.nexus-utility-head p:last-child{color:#8f8f96;margin:0}.nexus-utility-panel .nexus-notification-center,.nexus-utility-panel .nexus-admin-install-card{margin-top:0}`;
+ document.head.appendChild(st);
+})();
+
 async function loadAdmin(){
  ensureAdminPushControls();
  ensureAdminInstallAppButton();
+ installAdminUtilityTabs();
  // Load the three tables separately. This avoids the rental list disappearing
  // when Supabase cannot resolve the profiles foreign-key relationship.
  const [pc,rr,eq]=await Promise.all([
