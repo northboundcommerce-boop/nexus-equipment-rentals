@@ -454,13 +454,50 @@ window.requestRental=async(id,name)=>{
 };
 
 async function ensureAdminPushControls(){
- if(document.getElementById('nexusPushAdmin'))return;
+ if(document.getElementById('nexusNotificationCenter'))return;
  const host=document.querySelector('.admin-tabs')?.parentElement||document.querySelector('.admin-shell')||document.querySelector('main');
  if(!host)return;
- const box=document.createElement('div');box.id='nexusPushAdmin';box.innerHTML=`<button id="enableNexusPush" type="button" style="background:#c71920;color:#fff;border:0;border-radius:8px;padding:11px 16px;font-weight:800;cursor:pointer">🔔 Enable Push Notifications</button><small id="nexusPushStatus" style="display:block;margin-top:6px;opacity:.72">Get notified on this device when a customer requests equipment.</small>`;
+ const box=document.createElement('section');box.id='nexusNotificationCenter';box.className='nexus-notification-center';
+ box.innerHTML=`<div class="nnc-head"><div><span class="nnc-kicker">ADMIN ALERTS</span><h3>🔔 Notification Center</h3><p>Set this once. Nexus will automatically send the alerts you choose.</p></div><span id="nncSaved" class="nnc-saved"></span></div>
+ <div class="nnc-grid">
+  <label><span>Notification Email</span><input id="nncEmail" type="email" placeholder="manager@example.com"></label>
+  <div><span class="nnc-label">This Device</span><button id="enableNexusPush" type="button" class="nnc-push">Enable Push Notifications</button><small id="nexusPushStatus">Push not enabled on this device.</small></div>
+ </div>
+ <div class="nnc-section"><b>Delivery Methods</b><label class="nnc-check"><input id="nncPush" type="checkbox" checked> Push notifications</label><label class="nnc-check"><input id="nncEmailOn" type="checkbox" checked> Email</label></div>
+ <div class="nnc-section"><b>Notify me when</b><div class="nnc-events">
+  <label class="nnc-check"><input id="nncRental" type="checkbox" checked> New rental request</label>
+  <label class="nnc-check"><input id="nncContract" type="checkbox" checked> Contract signed</label>
+  <label class="nnc-check"><input id="nncPayment" type="checkbox" checked> Payment received</label>
+  <label class="nnc-check"><input id="nncMessage" type="checkbox" checked> Customer message</label>
+  <label class="nnc-check"><input id="nncCancel" type="checkbox" checked> Rental cancelled</label>
+  <label class="nnc-check"><input id="nncReturn" type="checkbox" checked> Equipment due back / overdue</label>
+ </div></div>
+ <div class="nnc-actions"><button id="nncSave" class="nnc-save">Save Notification Settings</button><button id="nncTest" class="nnc-test">Send Test Notification</button></div>`;
  host.prepend(box);
  document.getElementById('enableNexusPush').onclick=enableNexusAdminPush;
- if(Notification.permission==='granted')document.getElementById('nexusPushStatus').textContent='Push permission is enabled on this device.';
+ document.getElementById('nncSave').onclick=saveNexusNotificationSettings;
+ document.getElementById('nncTest').onclick=testNexusNotification;
+ await loadNexusNotificationSettings();
+}
+async function loadNexusNotificationSettings(){
+ try{
+  const {data:{session}}=await db.auth.getSession();if(!session?.access_token)return;
+  const r=await fetch('/api/admin-notification-settings',{headers:{Authorization:`Bearer ${session.access_token}`}});const o=await r.json();if(!r.ok)return;
+  const x=o.settings||{};document.getElementById('nncEmail').value=x.notification_email||session.user?.email||'';
+  [['nncPush','push_enabled'],['nncEmailOn','email_enabled'],['nncRental','new_rental'],['nncContract','contract_signed'],['nncPayment','payment_received'],['nncMessage','customer_message'],['nncCancel','rental_cancelled'],['nncReturn','return_reminder']].forEach(([a,b])=>{const e=document.getElementById(a);if(e)e.checked=x[b]!==false});
+  if(Notification.permission==='granted')document.getElementById('nexusPushStatus').textContent='✓ Browser permission granted. Enable/register this device if needed.';
+ }catch(_){}
+}
+async function saveNexusNotificationSettings(){
+ try{
+  const {data:{session}}=await db.auth.getSession();if(!session?.access_token)throw new Error('Please sign in again.');
+  const body={notification_email:document.getElementById('nncEmail').value.trim(),push_enabled:document.getElementById('nncPush').checked,email_enabled:document.getElementById('nncEmailOn').checked,new_rental:document.getElementById('nncRental').checked,contract_signed:document.getElementById('nncContract').checked,payment_received:document.getElementById('nncPayment').checked,customer_message:document.getElementById('nncMessage').checked,rental_cancelled:document.getElementById('nncCancel').checked,return_reminder:document.getElementById('nncReturn').checked};
+  const r=await fetch('/api/admin-notification-settings',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${session.access_token}`},body:JSON.stringify(body)});const o=await r.json();if(!r.ok)throw new Error(o.error||'Could not save settings.');
+  document.getElementById('nncSaved').textContent='✓ Saved';setTimeout(()=>document.getElementById('nncSaved').textContent='',2500);msg('Notification settings saved.');
+ }catch(e){msg(e.message)}
+}
+async function testNexusNotification(){
+ try{await saveNexusNotificationSettings();const {data:{session}}=await db.auth.getSession();const r=await fetch('/api/test-admin-notification',{method:'POST',headers:{Authorization:`Bearer ${session.access_token}`}});const o=await r.json();if(!r.ok)throw new Error(o.error||'Test failed.');msg(`Test sent. Push: ${o.push_sent||0}${o.email_sent?' • Email: sent':''}`)}catch(e){msg(e.message)}
 }
 async function enableNexusAdminPush(){
  try{
@@ -473,8 +510,7 @@ async function enableNexusAdminPush(){
   const {data:{session}}=await db.auth.getSession();if(!session?.access_token)throw new Error('Please sign in again.');
   const res=await fetch('/api/save-push-subscription',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`},body:JSON.stringify(sub)});
   const out=await res.json();if(!res.ok)throw new Error(out.error||'Could not save push notifications.');
-  document.getElementById('nexusPushStatus').textContent='✓ Push notifications enabled on this device.';
-  msg('Push notifications enabled.');
+  document.getElementById('nexusPushStatus').textContent='✓ Push notifications enabled on this device.';document.getElementById('nncPush').checked=true;await saveNexusNotificationSettings();msg('Push notifications enabled.');
  }catch(e){msg(e.message)}
 }
 
@@ -1512,3 +1548,7 @@ window.renderPaymentsTab=async(filter)=>{
 (function(){const st=document.createElement('style');st.textContent=`.customer-checkout-center{padding:26px!important}.customer-pay-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;padding-bottom:20px}.customer-pay-hero h2{font-size:30px;margin:5px 0}.customer-pay-hero p{margin:0;color:#999}.customer-total-due{text-align:right}.customer-total-due small{display:block;color:#777;font-size:9px;font-weight:900}.customer-total-due b{font-size:30px}.customer-payment-card{display:flex;justify-content:space-between;gap:20px;align-items:center;padding:20px;margin-top:12px;border:1px solid #3c282b;border-radius:11px;background:#100c0e}.customer-payment-card.paid{border-color:#244d30;background:#0b130e}.customer-payment-info{display:flex;gap:14px;align-items:center}.pay-icon{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:#e71f2c;color:#fff;font-weight:900;font-size:18px;flex:none}.customer-payment-card.paid .pay-icon,.no-payments .pay-icon{background:#176b36}.customer-payment-info h3{margin:0 0 5px}.customer-payment-info p,.customer-payment-info small{margin:0;color:#888}.customer-payment-side{text-align:right;min-width:230px}.customer-payment-side>strong{display:block;font-size:24px}.pay-state{display:inline-block;margin:5px 0 10px;padding:4px 8px;border-radius:999px;font-size:9px;font-weight:900}.pay-state.due{background:#3c1519;color:#ff747c}.pay-state.paid{background:#11391e;color:#66dc89}.stripe-pay-btn{width:100%;border:0;border-radius:8px;background:#e91f2c;color:#fff;padding:12px 16px;font-weight:900;cursor:pointer}.stripe-pay-btn span,.stripe-pay-btn small{display:block}.stripe-pay-btn small{margin-top:3px;color:#ffdadd;font-size:9px}.paid-date{display:block;color:#7c9a84}.no-payments{text-align:center;padding:32px 10px}.no-payments .pay-icon{margin:0 auto 12px}.no-payments p{color:#888}@media(max-width:650px){.customer-pay-hero,.customer-payment-card{align-items:stretch;flex-direction:column}.customer-total-due,.customer-payment-side{text-align:left;min-width:0}}`;document.head.appendChild(st)})();
 
 (function(){const st=document.createElement('style');st.textContent=`.stripe-checkout-error{margin-top:10px;padding:11px 13px;border:1px solid #6b242a;background:#241014;border-radius:7px;color:#ff9da3;text-align:left}.stripe-checkout-error b,.stripe-checkout-error span{display:block}.stripe-checkout-error span{font-size:11px;margin-top:4px}`;document.head.appendChild(st)})();
+
+(function(){const st=document.createElement('style');st.textContent=`
+.nexus-notification-center{margin:18px 0;padding:20px;border:1px solid #30262a;border-radius:14px;background:linear-gradient(145deg,#0b0b0d,#111114);color:#fff}.nnc-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.nnc-head h3{margin:3px 0 5px;font-size:22px}.nnc-head p{margin:0;color:#aaa;font-size:13px}.nnc-kicker{color:#ff2638;font-size:10px;font-weight:900;letter-spacing:1.5px}.nnc-saved{color:#60d394;font-size:12px;font-weight:800}.nnc-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}.nnc-grid label>span,.nnc-label{display:block;color:#aaa;font-size:10px;font-weight:800;text-transform:uppercase;margin-bottom:7px}.nnc-grid input{width:100%;box-sizing:border-box;background:#09090b;border:1px solid #333;color:#fff;padding:11px;border-radius:8px}.nnc-push,.nnc-save{background:#ed1c2b;color:#fff;border:0;border-radius:8px;padding:11px 15px;font-weight:900;cursor:pointer}.nnc-grid small{display:block;margin-top:7px;color:#888}.nnc-section{border-top:1px solid #29292d;margin-top:18px;padding-top:15px}.nnc-section>b{display:block;margin-bottom:10px}.nnc-events{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.nnc-check{display:inline-flex;align-items:center;gap:8px;margin-right:16px;color:#ddd;font-size:13px}.nnc-check input{accent-color:#ed1c2b}.nnc-actions{display:flex;gap:10px;margin-top:18px}.nnc-test{background:#18181c;color:#fff;border:1px solid #3a3a40;border-radius:8px;padding:11px 15px;font-weight:800;cursor:pointer}@media(max-width:700px){.nnc-grid,.nnc-events{grid-template-columns:1fr}.nnc-actions{flex-direction:column}}
+`;document.head.appendChild(st)})();
