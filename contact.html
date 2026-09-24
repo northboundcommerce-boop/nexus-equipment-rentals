@@ -1,4 +1,873 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Contact | Nexus Equipment Rentals</title><link rel="stylesheet" href="/styles.css"></head><body>
-<header class="site-header"><div class="wrap nav"><a class="brand" href="/"><span class="brand-n">N</span><span>NEXUS</span><small>EQUIPMENT RENTALS</small></a><nav><a href="/equipment.html">Equipment</a><a href="/#how">How It Works</a><a href="/#why">Why Nexus</a><a class="active" href="/contact.html">Contact</a></nav><a class="btn compact" href="/portal.html">Customer Portal</a></div></header>
-<main><section class="page-hero"><div class="wrap"><div class="eyebrow">CONTACT NEXUS</div><h1>LET'S GET YOUR <span>PROJECT MOVING.</span></h1><p>For equipment availability and rental questions, contact the Nexus Equipment Rentals team.</p></div></section><section class="section"><div class="wrap contact-grid"><div class="contact-card"><h2>Rental Questions</h2><p>Already know what equipment you need? Use the customer portal to create an account and submit a rental request.</p><a class="btn" href="/portal.html">Open Customer Portal</a></div><div class="contact-card"><h2>Browse First</h2><p>See the live fleet, current rates and equipment availability before starting your request.</p><a class="btn outline" href="/equipment.html">Browse Equipment</a></div></div></section></main>
-<footer><div class="wrap footer"><div><div class="brand"><span class="brand-n">N</span><span>NEXUS</span><small>EQUIPMENT RENTALS</small></div><p>RENT | WORK | GET IT DONE</p></div></div></footer></body></html>
+<!doctype html>
+<html lang="en">
+
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<title>Contact | Nexus Equipment Rentals</title>
+
+<meta
+  name="description"
+  content="Contact Nexus Equipment Rentals about equipment availability, rental requests, payments, business accounts and existing rentals."
+>
+
+<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/nexus-chatbot.css">
+
+<style>
+
+.contact-section{
+  padding:70px 0 100px;
+}
+
+.contact-layout{
+  display:grid;
+  grid-template-columns:1.2fr .8fr;
+  gap:35px;
+  align-items:start;
+}
+
+.nexus-form-card{
+  background:
+    radial-gradient(circle at 100% 0%,rgba(215,25,32,.12),transparent 35%),
+    #111;
+  border:1px solid #292929;
+  border-radius:18px;
+  padding:35px;
+}
+
+.nexus-form-card h2{
+  margin:0 0 8px;
+  font-size:30px;
+}
+
+.nexus-form-card > p{
+  color:#999;
+  margin:0 0 30px;
+}
+
+.form-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:18px;
+}
+
+.form-group{
+  display:flex;
+  flex-direction:column;
+  gap:7px;
+}
+
+.form-group.full{
+  grid-column:1 / -1;
+}
+
+.form-group label{
+  font-size:12px;
+  font-weight:800;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:#ccc;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea{
+  width:100%;
+  border:1px solid #303034;
+  background:#171719;
+  color:#fff;
+  border-radius:9px;
+  padding:14px;
+  font:inherit;
+  outline:none;
+  transition:.2s;
+}
+
+.form-group textarea{
+  resize:vertical;
+  min-height:150px;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus{
+  border-color:#d71920;
+  box-shadow:0 0 0 3px rgba(215,25,32,.10);
+}
+
+.form-group input::placeholder,
+.form-group textarea::placeholder{
+  color:#666;
+}
+
+.form-submit{
+  margin-top:22px;
+}
+
+.form-submit button{
+  width:100%;
+  border:0;
+  cursor:pointer;
+  font-size:14px;
+}
+
+.form-note{
+  margin-top:12px;
+  text-align:center;
+  color:#777;
+  font-size:12px;
+}
+
+.form-status{
+  display:none;
+  margin-top:18px;
+  padding:14px;
+  border-radius:8px;
+  font-size:14px;
+}
+
+.form-status.success{
+  display:block;
+  background:rgba(50,190,100,.10);
+  border:1px solid rgba(50,190,100,.35);
+  color:#7ee3a2;
+}
+
+.form-status.error{
+  display:block;
+  background:rgba(215,25,32,.10);
+  border:1px solid rgba(215,25,32,.35);
+  color:#ff777b;
+}
+
+.contact-side{
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+}
+
+.contact-side .contact-card{
+  margin:0;
+}
+
+.contact-card-number{
+  color:#d71920;
+  font-size:12px;
+  font-weight:900;
+  letter-spacing:.15em;
+  margin-bottom:12px;
+}
+
+.contact-card h3{
+  margin:0 0 10px;
+}
+
+.contact-card p{
+  color:#999;
+}
+
+.contact-help{
+  margin-top:20px;
+  padding-top:20px;
+  border-top:1px solid #292929;
+}
+
+.contact-help a{
+  color:#ff454b;
+  font-weight:700;
+}
+
+/* spam field */
+.nexus-trap{
+  position:absolute !important;
+  left:-9999px !important;
+  opacity:0 !important;
+  pointer-events:none !important;
+}
+
+@media(max-width:800px){
+
+  .contact-layout{
+    grid-template-columns:1fr;
+  }
+
+  .form-grid{
+    grid-template-columns:1fr;
+  }
+
+  .form-group.full{
+    grid-column:auto;
+  }
+
+  .nexus-form-card{
+    padding:25px 18px;
+  }
+
+}
+
+</style>
+
+</head>
+
+
+<body>
+
+
+<!-- HEADER -->
+
+<header class="site-header">
+
+<div class="wrap nav">
+
+<a class="brand" href="/">
+
+<span class="brand-n">N</span>
+
+<span>NEXUS</span>
+
+<small>
+EQUIPMENT RENTALS
+</small>
+
+</a>
+
+
+<nav>
+
+<a href="/equipment.html">
+Equipment
+</a>
+
+<a href="/#how">
+How It Works
+</a>
+
+<a href="/#why">
+Why Nexus
+</a>
+
+<a href="/faq.html">
+FAQ
+</a>
+
+<a
+class="active"
+href="/contact.html"
+>
+Contact
+</a>
+
+</nav>
+
+
+<a
+class="btn compact"
+href="/portal.html"
+>
+Customer Portal
+</a>
+
+</div>
+
+</header>
+
+
+
+<main>
+
+
+<!-- HERO -->
+
+<section class="page-hero">
+
+<div class="wrap">
+
+<div class="eyebrow">
+CONTACT NEXUS
+</div>
+
+<h1>
+LET'S GET YOUR
+<span>PROJECT MOVING.</span>
+</h1>
+
+<p>
+Have a question about equipment, availability,
+an existing rental or your Nexus account?
+Send our team a message.
+</p>
+
+</div>
+
+</section>
+
+
+
+<!-- CONTACT -->
+
+<section class="contact-section">
+
+<div class="wrap contact-layout">
+
+
+<!-- FORM -->
+
+<div class="nexus-form-card">
+
+<div class="eyebrow">
+SEND A MESSAGE
+</div>
+
+<h2>
+How Can We Help?
+</h2>
+
+<p>
+Complete the form below and the Nexus Equipment
+Rentals team can follow up with you.
+</p>
+
+
+<form
+id="nexusContactForm"
+autocomplete="on"
+>
+
+
+<div class="form-grid">
+
+
+<div class="form-group">
+
+<label for="contactName">
+Full Name *
+</label>
+
+<input
+id="contactName"
+name="full_name"
+type="text"
+placeholder="Your name"
+autocomplete="name"
+required
+>
+
+</div>
+
+
+<div class="form-group">
+
+<label for="contactEmail">
+Email *
+</label>
+
+<input
+id="contactEmail"
+name="email"
+type="email"
+placeholder="you@email.com"
+autocomplete="email"
+required
+>
+
+</div>
+
+
+<div class="form-group">
+
+<label for="contactPhone">
+Phone
+</label>
+
+<input
+id="contactPhone"
+name="phone"
+type="tel"
+placeholder="(555) 555-5555"
+autocomplete="tel"
+>
+
+</div>
+
+
+<div class="form-group">
+
+<label for="contactReason">
+Reason For Contact *
+</label>
+
+<select
+id="contactReason"
+name="reason"
+required
+>
+
+<option value="">
+Select a reason
+</option>
+
+<option value="equipment_availability">
+Equipment Availability
+</option>
+
+<option value="rental_question">
+Rental Question
+</option>
+
+<option value="existing_rental">
+Existing Rental
+</option>
+
+<option value="billing_payment">
+Billing / Payment
+</option>
+
+<option value="business_account">
+Business Account
+</option>
+
+<option value="account_help">
+Account Help
+</option>
+
+<option value="other">
+Other
+</option>
+
+</select>
+
+</div>
+
+
+<div class="form-group full">
+
+<label for="contactEquipment">
+Equipment
+</label>
+
+<input
+id="contactEquipment"
+name="equipment"
+type="text"
+placeholder="Equipment you're interested in (optional)"
+>
+
+</div>
+
+
+<div class="form-group full">
+
+<label for="contactMessage">
+Message *
+</label>
+
+<textarea
+id="contactMessage"
+name="message"
+placeholder="Tell us how we can help..."
+required
+></textarea>
+
+</div>
+
+
+<!-- SPAM BOT TRAP -->
+
+<div
+class="nexus-trap"
+aria-hidden="true"
+>
+
+<label for="companyWebsite">
+Website
+</label>
+
+<input
+id="companyWebsite"
+name="company_website"
+type="text"
+tabindex="-1"
+autocomplete="off"
+>
+
+</div>
+
+
+</div>
+
+
+<div class="form-submit">
+
+<button
+type="submit"
+class="btn"
+id="contactSubmit"
+>
+Send Message →
+</button>
+
+</div>
+
+
+<div class="form-note">
+Please don't include sensitive financial or identity
+information in this form.
+</div>
+
+
+<div
+id="contactStatus"
+class="form-status"
+></div>
+
+
+</form>
+
+</div>
+
+
+
+<!-- RIGHT SIDE -->
+
+<div class="contact-side">
+
+
+<div class="contact-card">
+
+<div class="contact-card-number">
+01 / RENT EQUIPMENT
+</div>
+
+<h3>
+Ready To Rent?
+</h3>
+
+<p>
+Browse the live Nexus fleet, view equipment
+information and start your rental request.
+</p>
+
+<a
+class="btn"
+href="/equipment.html"
+>
+Browse Equipment
+</a>
+
+</div>
+
+
+
+<div class="contact-card">
+
+<div class="contact-card-number">
+02 / CUSTOMER ACCOUNT
+</div>
+
+<h3>
+Already Have An Account?
+</h3>
+
+<p>
+Sign in to view your rental requests,
+contracts, payments and account status.
+</p>
+
+<a
+class="btn outline"
+href="/portal.html"
+>
+Customer Portal
+</a>
+
+</div>
+
+
+
+<div class="contact-card">
+
+<div class="contact-card-number">
+03 / QUICK ANSWERS
+</div>
+
+<h3>
+Have A Common Question?
+</h3>
+
+<p>
+Our FAQ covers verification, rental requests,
+contracts, deposits, payments, pickup,
+returns and cancellations.
+</p>
+
+<a
+class="btn outline"
+href="/faq.html"
+>
+View FAQ
+</a>
+
+
+<div class="contact-help">
+
+Can't find your answer?
+
+<br>
+
+<a href="#nexusContactForm">
+Send Nexus a message ↑
+</a>
+
+</div>
+
+</div>
+
+
+</div>
+
+</div>
+
+</section>
+
+
+</main>
+
+
+
+<!-- FOOTER -->
+
+<footer>
+
+<div class="wrap footer">
+
+<div>
+
+<div class="brand">
+
+<span class="brand-n">
+N
+</span>
+
+<span>
+NEXUS
+</span>
+
+<small>
+EQUIPMENT RENTALS
+</small>
+
+</div>
+
+<p>
+RENT | WORK | GET IT DONE
+</p>
+
+</div>
+
+
+<div class="footer-links">
+
+<a href="/equipment.html">
+Equipment
+</a>
+
+<a href="/faq.html">
+FAQ
+</a>
+
+<a href="/portal.html">
+Customer Portal
+</a>
+
+<a href="/contact.html">
+Contact
+</a>
+
+</div>
+
+</div>
+
+</footer>
+
+
+
+<!-- SUPABASE -->
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script src="/supabase-config.js"></script>
+
+
+
+<!-- CONTACT FORM -->
+
+<script>
+
+const contactForm =
+document.getElementById("nexusContactForm");
+
+const contactStatus =
+document.getElementById("contactStatus");
+
+const contactSubmit =
+document.getElementById("contactSubmit");
+
+
+contactForm.addEventListener(
+"submit",
+async (event) => {
+
+event.preventDefault();
+
+
+contactStatus.className =
+"form-status";
+
+contactStatus.textContent =
+"";
+
+
+/* SPAM CHECK */
+
+const spamField =
+document.getElementById("companyWebsite").value;
+
+if(spamField){
+
+return;
+
+}
+
+
+const originalButtonText =
+contactSubmit.textContent;
+
+
+contactSubmit.disabled = true;
+
+contactSubmit.textContent =
+"Sending...";
+
+
+try{
+
+
+/*
+This sends the form to the Nexus API endpoint.
+
+We will connect this endpoint to Supabase so
+submissions appear inside the Nexus admin system.
+*/
+
+const response =
+await fetch(
+"/api/contact-submit",
+{
+
+method:"POST",
+
+headers:{
+"Content-Type":"application/json"
+},
+
+body:JSON.stringify({
+
+full_name:
+document.getElementById("contactName").value.trim(),
+
+email:
+document.getElementById("contactEmail").value.trim(),
+
+phone:
+document.getElementById("contactPhone").value.trim(),
+
+reason:
+document.getElementById("contactReason").value,
+
+equipment:
+document.getElementById("contactEquipment").value.trim(),
+
+message:
+document.getElementById("contactMessage").value.trim(),
+
+company_website:""
+
+})
+
+}
+);
+
+
+const data =
+await response.json()
+.catch(() => ({}));
+
+
+if(!response.ok){
+
+throw new Error(
+data.error ||
+"Unable to send your message."
+);
+
+}
+
+
+contactStatus.className =
+"form-status success";
+
+contactStatus.textContent =
+"✓ Message sent. The Nexus team has received your request.";
+
+
+contactForm.reset();
+
+
+}
+
+catch(error){
+
+
+console.error(
+"Nexus contact form:",
+error
+);
+
+
+contactStatus.className =
+"form-status error";
+
+contactStatus.textContent =
+"Your message could not be sent right now. Please try again.";
+
+
+}
+
+
+finally{
+
+
+contactSubmit.disabled =
+false;
+
+contactSubmit.textContent =
+originalButtonText;
+
+
+}
+
+});
+
+</script>
+
+
+
+<!-- ASK NEXUS CHATBOT -->
+
+<script src="/nexus-chatbot.js"></script>
+
+
+</body>
+</html>
