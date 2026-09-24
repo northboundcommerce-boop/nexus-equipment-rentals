@@ -530,8 +530,74 @@ async function enableNexusAdminPush(){
  }catch(e){if(status)status.textContent='Registration failed: '+e.message;msg('Push registration failed: '+e.message)}
  finally{if(btn){btn.disabled=false;btn.textContent='Re-register This Device'}}
 }
+
+
+// ===== ADMIN-ONLY INSTALL APP BUTTON =====
+let nexusDeferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (event) => {
+  event.preventDefault();
+  nexusDeferredInstallPrompt = event;
+  const btn = document.getElementById('nexusInstallAppBtn');
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = 'Install Nexus App';
+  }
+});
+window.addEventListener('appinstalled', () => {
+  nexusDeferredInstallPrompt = null;
+  const card = document.getElementById('nexusAdminInstallCard');
+  if (card) card.remove();
+  try { localStorage.setItem('nexusPwaInstalled', '1'); } catch (_) {}
+});
+function nexusIsStandalone(){
+  return window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+function nexusIsIOS(){
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+async function installNexusAdminApp(){
+  const status = document.getElementById('nexusInstallStatus');
+  if (nexusIsStandalone()) {
+    if (status) status.textContent = '✓ Nexus Rentals is already installed on this device.';
+    return;
+  }
+  if (nexusDeferredInstallPrompt) {
+    const promptEvent = nexusDeferredInstallPrompt;
+    nexusDeferredInstallPrompt = null;
+    await promptEvent.prompt();
+    const choice = await promptEvent.userChoice;
+    if (status) status.textContent = choice?.outcome === 'accepted'
+      ? '✓ Installation started.'
+      : 'Install cancelled. You can try again anytime.';
+    return;
+  }
+  if (nexusIsIOS()) {
+    if (status) status.innerHTML = 'On iPhone/iPad: open this page in <b>Safari</b> → tap <b>Share</b> → <b>Add to Home Screen</b> → <b>Add</b>.';
+    return;
+  }
+  if (status) status.textContent = 'If the install window does not appear, open your browser menu and choose “Install app” or “Add to Home screen.”';
+}
+function ensureAdminInstallAppButton(){
+  if (nexusIsStandalone() || document.getElementById('nexusAdminInstallCard')) return;
+  const host = document.getElementById('nexusNotificationCenter')?.parentElement || document.querySelector('.admin-tabs')?.parentElement || document.querySelector('.admin-shell') || document.querySelector('main');
+  if (!host) return;
+  const card = document.createElement('section');
+  card.id = 'nexusAdminInstallCard';
+  card.className = 'nexus-admin-install-card';
+  card.innerHTML = `<div class="nexus-install-copy"><span class="nexus-install-kicker">NEXUS ADMIN APP</span><h3>📱 Install Nexus Rentals</h3><p>Add the admin portal to this device for fast access and an app-style experience.</p><small id="nexusInstallStatus">${nexusIsIOS() ? 'iPhone/iPad installation uses Add to Home Screen.' : 'Ready to install on supported devices.'}</small></div><button id="nexusInstallAppBtn" type="button" class="nexus-install-btn">Install Nexus App</button>`;
+  const notificationCenter = document.getElementById('nexusNotificationCenter');
+  if (notificationCenter) notificationCenter.insertAdjacentElement('afterend', card); else host.prepend(card);
+  document.getElementById('nexusInstallAppBtn').onclick = installNexusAdminApp;
+}
+(function(){
+  const st=document.createElement('style');
+  st.textContent=`.nexus-admin-install-card{margin:14px 0 18px;padding:18px 20px;border:1px solid #3a2529;border-radius:14px;background:linear-gradient(145deg,#0b0b0d,#151013);display:flex;align-items:center;justify-content:space-between;gap:18px;color:#fff;box-shadow:0 12px 30px rgba(0,0,0,.18)}.nexus-install-kicker{color:#ff2638;font-size:10px;font-weight:900;letter-spacing:1.5px}.nexus-admin-install-card h3{margin:4px 0 5px;font-size:20px}.nexus-admin-install-card p{margin:0 0 7px;color:#aaa;font-size:13px}.nexus-admin-install-card small{color:#8f8f96}.nexus-install-btn{flex:none;border:0;border-radius:9px;background:#ed1c2b;color:#fff;padding:12px 17px;font-weight:900;cursor:pointer;box-shadow:0 7px 20px rgba(237,28,43,.18)}.nexus-install-btn:disabled{opacity:.55;cursor:default}@media(max-width:700px){.nexus-admin-install-card{align-items:stretch;flex-direction:column}.nexus-install-btn{width:100%}}`;
+  document.head.appendChild(st);
+})();
+
 async function loadAdmin(){
  ensureAdminPushControls();
+ ensureAdminInstallAppButton();
  // Load the three tables separately. This avoids the rental list disappearing
  // when Supabase cannot resolve the profiles foreign-key relationship.
  const [pc,rr,eq]=await Promise.all([
