@@ -1686,7 +1686,7 @@ function installPaymentsAdminTab(){
  const panel=document.createElement('section');panel.id='tab-payments';panel.className='admin-panel';
  panel.innerHTML=`<div class="payments-tab-head"><div><p class="nexus-kicker">NEXUS PAYMENTS</p><h2>Payments</h2><p>See who has paid, who still owes, and every payment request.</p></div><button class="small-btn" onclick="renderPaymentsTab()">Refresh</button></div>
  <div id="paymentsTabStats" class="payment-center-stats"></div>
- <div class="payments-filters"><button class="pay-filter active" data-pay-filter="all">All</button><button class="pay-filter" data-pay-filter="pending">Not Paid</button><button class="pay-filter" data-pay-filter="paid">Paid</button></div>
+ <div class="payments-filters"><button class="pay-filter active" data-pay-filter="all">All</button><button class="pay-filter" data-pay-filter="pending">Not Paid</button><button class="pay-filter" data-pay-filter="paid">Paid</button><button class="pay-filter" data-pay-filter="cancelled">Cancelled</button><button class="pay-filter" data-pay-filter="failed">Failed</button></div>
  <div id="paymentsTabTable"></div>`;
  const panels=admin.querySelectorAll('.admin-panel');(panels[panels.length-1]||tabbar).insertAdjacentElement('afterend',panel);
  btn.onclick=()=>{$$('.admin-tab').forEach(x=>x.classList.remove('active'));$$('.admin-panel').forEach(x=>x.classList.remove('active'));btn.classList.add('active');panel.classList.add('active');renderPaymentsTab()};
@@ -1703,8 +1703,20 @@ window.renderPaymentsTab=async(filter)=>{
  const stats=document.getElementById('paymentsTabStats');if(stats)stats.innerHTML=`<div><small>NOT PAID</small><b>${pending.length}</b></div><div><small>PAID</small><b>${paid.length}</b></div><div><small>OUTSTANDING</small><b>${money(due)}</b></div><div><small>COLLECTED</small><b>${money(collected)}</b></div>`;
  const badge=document.getElementById('paymentsBadge');if(badge)badge.textContent=pending.length||'';
  const filtered=(rows||[]).filter(x=>filter==='all'||x.status===filter);
- mount.innerHTML=filtered.length?`<div class="payments-table-wrap"><table class="admin-table payments-table"><thead><tr><th>Customer</th><th>Payment For</th><th>Amount</th><th>Due</th><th>Status</th><th>Paid</th><th>Actions</th></tr></thead><tbody>${filtered.map(x=>{const c=adminCustomers.find(c=>c.id===x.customer_id);return `<tr><td><b>${esc(c?.full_name||'Customer')}</b><small>${esc(c?.email||'')}</small></td><td>${esc(x.title||'Payment Request')}<small>${esc(x.note||'')}</small></td><td><b>${money(x.amount)}</b></td><td>${esc(x.due_date||'—')}</td><td><span class="pay-table-status ${x.status==='paid'?'paid':'unpaid'}">${x.status==='paid'?'✓ PAID':'NOT PAID'}</span></td><td>${x.paid_at?new Date(x.paid_at).toLocaleString():'—'}</td><td><button class="small-btn" onclick="openCustomerProfile('${x.customer_id}')">View Customer</button></td></tr>`}).join('')}</tbody></table></div>`:'<div class="notice">No payments in this category.</div>';
+ mount.innerHTML=filtered.length?`<div class="payments-table-wrap"><table class="admin-table payments-table"><thead><tr><th>Customer</th><th>Payment For</th><th>Amount</th><th>Due</th><th>Status</th><th>Paid</th><th>Actions</th></tr></thead><tbody>${filtered.map(x=>{const c=adminCustomers.find(c=>c.id===x.customer_id);const label=x.status==='paid'?'✓ PAID':x.status==='cancelled'?'CANCELLED':x.status==='failed'?'FAILED':'NOT PAID';const actions=[`<button class="small-btn" onclick="openCustomerProfile('${x.customer_id}')">View Customer</button>`];if(x.status==='pending')actions.push(`<button class="small-btn payment-cancel-btn" onclick="cancelNexusPayment('${x.id}')">Cancel Payment</button>`);if(['cancelled','failed'].includes(x.status))actions.push(`<button class="small-btn red payment-remove-btn" onclick="removeNexusPayment('${x.id}')">Remove</button>`);return `<tr><td><b>${esc(c?.full_name||'Customer')}</b><small>${esc(c?.email||'')}</small></td><td>${esc(x.title||'Payment Request')}<small>${esc(x.note||'')}</small></td><td><b>${money(x.amount)}</b></td><td>${esc(x.due_date||'—')}</td><td><span class="pay-table-status ${esc(x.status)}">${label}</span></td><td>${x.paid_at?new Date(x.paid_at).toLocaleString():'—'}</td><td><div class="admin-actions payment-actions">${actions.join('')}</div></td></tr>`}).join('')}</tbody></table></div>`:'<div class="notice">No payments in this category.</div>';
 };
+
+async function nexusPaymentAdminAction(action,paymentId){
+ const {data:{session}}=await db.auth.getSession();
+ if(!session?.access_token){msg('Your session expired. Please sign in again.');return false}
+ const res=await fetch('/api/admin-payment-actions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`},body:JSON.stringify({action,payment_id:paymentId})});
+ let out={};try{out=await res.json()}catch{throw new Error(`The server returned an invalid response (${res.status}).`)}
+ if(!res.ok)throw new Error(out.error||`Payment action failed (${res.status}).`);
+ return true;
+}
+window.cancelNexusPayment=async id=>{if(!confirm('Cancel this payment request? The customer will no longer be able to pay it.'))return;try{await nexusPaymentAdminAction('cancel',id);msg('Payment request cancelled.');await renderPaymentsTab();await loadAdminPaymentRequests()}catch(e){msg(e.message)}};
+window.removeNexusPayment=async id=>{if(!confirm('Remove this cancelled/failed payment from the Payment Center? This cannot be undone.'))return;try{await nexusPaymentAdminAction('remove',id);msg('Payment removed from Payment Center.');await renderPaymentsTab();await loadAdminPaymentRequests()}catch(e){msg(e.message)}};
+
 
 (function(){
  const oldLoadAdmin=window.loadAdmin;
@@ -1722,3 +1734,88 @@ window.renderPaymentsTab=async(filter)=>{
 (function(){const st=document.createElement('style');st.textContent=`
 .nexus-notification-center{margin:18px 0;padding:20px;border:1px solid #30262a;border-radius:14px;background:linear-gradient(145deg,#0b0b0d,#111114);color:#fff}.nnc-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.nnc-head h3{margin:3px 0 5px;font-size:22px}.nnc-head p{margin:0;color:#aaa;font-size:13px}.nnc-kicker{color:#ff2638;font-size:10px;font-weight:900;letter-spacing:1.5px}.nnc-saved{color:#60d394;font-size:12px;font-weight:800}.nnc-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}.nnc-grid label>span,.nnc-label{display:block;color:#aaa;font-size:10px;font-weight:800;text-transform:uppercase;margin-bottom:7px}.nnc-grid input{width:100%;box-sizing:border-box;background:#09090b;border:1px solid #333;color:#fff;padding:11px;border-radius:8px}.nnc-push,.nnc-save{background:#ed1c2b;color:#fff;border:0;border-radius:8px;padding:11px 15px;font-weight:900;cursor:pointer}.nnc-grid small{display:block;margin-top:7px;color:#888}.nnc-section{border-top:1px solid #29292d;margin-top:18px;padding-top:15px}.nnc-section>b{display:block;margin-bottom:10px}.nnc-events{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.nnc-check{display:inline-flex;align-items:center;gap:8px;margin-right:16px;color:#ddd;font-size:13px}.nnc-check input{accent-color:#ed1c2b}.nnc-actions{display:flex;gap:10px;margin-top:18px}.nnc-test{background:#18181c;color:#fff;border:1px solid #3a3a40;border-radius:8px;padding:11px 15px;font-weight:800;cursor:pointer}@media(max-width:700px){.nnc-grid,.nnc-events{grid-template-columns:1fr}.nnc-actions{flex-direction:column}}
 `;document.head.appendChild(st)})();
+
+/* =========================================================
+   NEXUS RENTALS — MOBILE / TABLET RESPONSIVE MASTER PATCH
+   Keeps existing portal features intact; presentation only.
+   ========================================================= */
+(function installNexusMobileResponsivePatch(){
+  if(document.getElementById('nexusMobileResponsiveMaster')) return;
+  const st=document.createElement('style');
+  st.id='nexusMobileResponsiveMaster';
+  st.textContent=`
+  html,body{max-width:100%;overflow-x:hidden}
+  *,*:before,*:after{box-sizing:border-box}
+  img,video,canvas,svg{max-width:100%;height:auto}
+  input,select,textarea,button{max-width:100%}
+  button,a,input,select,textarea{-webkit-tap-highlight-color:transparent}
+  .admin-content,.customer-content,.portal-content,main{min-width:0}
+  .admin-table,.payments-table{width:100%;border-collapse:collapse}
+  .payments-table-wrap,.table-wrap,.admin-table-wrap{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+  @media(max-width:900px){
+    .admin-shell{display:block!important;min-height:0!important}
+    .admin-sidebar{position:sticky!important;top:0!important;z-index:1000!important;width:100%!important;max-width:100%!important;height:auto!important;min-height:0!important;display:flex!important;align-items:center!important;gap:7px!important;overflow-x:auto!important;overflow-y:hidden!important;padding:10px 12px!important;background:rgba(8,8,10,.97)!important;border-right:0!important;border-bottom:1px solid #29292f!important;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+    .admin-sidebar::-webkit-scrollbar{display:none}
+    .admin-sidebar .admin-tab{flex:0 0 auto!important;width:auto!important;min-width:max-content!important;margin:0!important;padding:10px 13px!important;border-radius:8px!important;white-space:nowrap!important;min-height:42px!important;display:inline-flex!important;align-items:center!important;justify-content:center!important}
+    .admin-sidebar .nexus-admin-nav-divider{flex:0 0 1px!important;width:1px!important;height:28px!important;margin:0 3px!important;border:0!important;background:#34343a!important}
+    .admin-content{width:100%!important;margin:0!important;padding:18px 14px 34px!important}
+    .admin-panel{width:100%!important;max-width:100%!important}
+    .stats-grid,.admin-stats,.dashboard-grid,.overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important}
+    .admin-card,.nexus-admin-management-card,.nexus-notification-center,.nexus-payments-card{max-width:100%!important}
+  }
+
+  @media(max-width:700px){
+    body{font-size:15px}
+    h1{font-size:clamp(25px,8vw,36px)!important;line-height:1.08!important}
+    h2{font-size:clamp(22px,7vw,30px)!important;line-height:1.12!important}
+    h3{line-height:1.2!important}
+    .admin-content{padding:14px 11px 30px!important}
+    .admin-panel{overflow:visible!important}
+    .stats-grid,.admin-stats,.dashboard-grid,.overview-grid,.payment-center-stats{grid-template-columns:1fr 1fr!important}
+    .admin-table,.payments-table{min-width:720px}
+    .admin-table th,.admin-table td,.payments-table th,.payments-table td{padding:11px 10px!important;font-size:12px!important;white-space:nowrap}
+    .admin-table td small,.payments-table td small{white-space:normal;max-width:220px}
+    .admin-card,.nexus-admin-management-card,.nexus-notification-center,.nexus-payments-card,.customer-checkout-center{padding:16px!important;border-radius:12px!important}
+    .nam-add,.nnc-actions,.equipment-edit-actions,.profile-modal-actions,.cancel-modal-actions{display:flex!important;flex-direction:column!important;align-items:stretch!important}
+    .nam-add button,.nnc-actions button,.equipment-edit-actions button,.profile-modal-actions button,.cancel-modal-actions button{width:100%!important;min-height:46px!important}
+    .nam-row{align-items:flex-start!important;flex-direction:column!important;padding:15px 0!important}
+    .nam-row>div:last-child{width:100%!important;display:flex!important;justify-content:flex-start!important}
+    .nam-remove{width:100%!important;min-height:44px!important;margin-top:4px!important}
+    .nam-current{white-space:normal!important}
+    .nnc-head,.payment-head,.payments-tab-head,.payment-center-head,.profile-modal-head{align-items:flex-start!important;flex-direction:column!important}
+    .nnc-grid,.nnc-events,.profile-modal-grid,.equipment-edit-grid,.rental-form-grid,.contract-summary{grid-template-columns:1fr!important}
+    .customer-profile-modal,.equipment-edit-modal,.contract-modal,.eq-detail-overlay,.rental-form-modal,.cancel-reservation-modal{padding:8px!important;align-items:flex-start!important}
+    .customer-profile-card,.equipment-edit-card,.contract-card,.rental-form-card,.cancel-reservation-card,.payment-modal{width:100%!important;max-width:100%!important;margin:8px 0!important;padding:18px 14px!important;border-radius:12px!important}
+    .profile-rental-row,.uploaded-contract-box,.profile-payment-status,.profile-payment-action,.customer-payment-card,.payment-received-alert{align-items:stretch!important;flex-direction:column!important}
+    .profile-pay-money{width:100%!important;justify-content:space-between!important;flex-wrap:wrap!important}
+    .payments-filters{overflow-x:auto!important;max-width:100%!important;padding-bottom:5px!important;-webkit-overflow-scrolling:touch}
+    .pay-filter{flex:0 0 auto!important;min-height:42px!important}
+    .nexus-equipment-grid{grid-template-columns:1fr!important}
+    .catalog-controls{display:flex!important;flex-direction:column!important;width:100%!important}
+    .catalog-controls input,.catalog-controls select,.catalog-controls button{width:100%!important;min-height:46px!important}
+    .eq-detail-modal{grid-template-columns:1fr!important;width:100%!important;max-width:100%!important}
+    .eq-main-photo{height:240px!important}
+    .eq-detail-content{padding:18px 14px!important}
+    input,select,textarea{font-size:16px!important;min-height:44px}
+    textarea{min-height:100px}
+    button,.small-btn,.primary-btn,.secondary-btn{min-height:44px}
+  }
+
+  @media(max-width:480px){
+    .admin-sidebar{padding:8px!important;gap:5px!important}
+    .admin-sidebar .admin-tab{padding:9px 11px!important;font-size:12px!important}
+    .admin-content{padding:12px 9px 28px!important}
+    .stats-grid,.admin-stats,.dashboard-grid,.overview-grid,.payment-center-stats{grid-template-columns:1fr!important}
+    .nexus-admin-management-card,.nexus-notification-center,.nexus-payments-card,.customer-checkout-center{padding:14px!important;margin:12px 0!important}
+    .nam-current-head{align-items:flex-start!important;flex-direction:column!important;gap:4px!important}
+    .customer-payment-info{align-items:flex-start!important}
+    .customer-payment-side,.customer-total-due{text-align:left!important;min-width:0!important;width:100%!important}
+    .eq-main-photo{height:210px!important}
+    .profile-pay-history>div{grid-template-columns:1fr!important;gap:4px!important}
+  }
+  `;
+  document.head.appendChild(st);
+})();
+
+;(function(){const st=document.createElement('style');st.textContent=`.payment-actions{display:flex;gap:7px;flex-wrap:wrap}.payment-cancel-btn{border-color:#8d5d18!important;color:#ffbd57!important}.pay-table-status.cancelled{color:#aaa;background:#28282d}.pay-table-status.failed{color:#ff727a;background:#3a1418}@media(max-width:700px){.payments-filters{overflow-x:auto;padding-bottom:4px}.payments-filters .pay-filter{flex:0 0 auto}.payment-actions{min-width:220px}}`;document.head.appendChild(st)})();
