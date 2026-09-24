@@ -503,20 +503,31 @@ async function testNexusNotification(){
   msg(`Test sent. Push: ${o.push_sent||0}${o.email_sent?' • Email: sent':''}`)}catch(e){msg(e.message)}
 }
 async function enableNexusAdminPush(){
+ const status=document.getElementById('nexusPushStatus'),btn=document.getElementById('enableNexusPush');
  try{
+  if(btn){btn.disabled=true;btn.textContent='Registering Device...'}
   if(!('serviceWorker'in navigator)||!('PushManager'in window))throw new Error('Push notifications are not supported in this browser.');
   const permission=await Notification.requestPermission();if(permission!=='granted')throw new Error('Notification permission was not allowed.');
-  const reg=await navigator.serviceWorker.register('/nexus-sw.js');
-  const keyRes=await fetch('/api/push-public-key');const keyOut=await keyRes.json();if(!keyRes.ok)throw new Error(keyOut.error||'Push is not configured yet.');
-  const b64=keyOut.publicKey.replace(/-/g,'+').replace(/_/g,'/');const raw=Uint8Array.from(atob(b64.padEnd(Math.ceil(b64.length/4)*4,'=')),c=>c.charCodeAt(0));
-  let sub=await reg.pushManager.getSubscription();if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:raw});
+  const reg=await navigator.serviceWorker.register('/nexus-sw.js');await navigator.serviceWorker.ready;
+  const kr=await fetch('/api/push-public-key?ts='+Date.now(),{cache:'no-store'});const kt=await kr.text();let ko={};try{ko=JSON.parse(kt)}catch(_){throw new Error(kt||'Push key endpoint returned an invalid response.')}if(!kr.ok||!ko.publicKey)throw new Error(ko.error||'Push public key is unavailable.');
+  const b64=ko.publicKey.replace(/-/g,'+').replace(/_/g,'/'),raw=Uint8Array.from(atob(b64.padEnd(Math.ceil(b64.length/4)*4,'=')),c=>c.charCodeAt(0));
+  let sub=await reg.pushManager.getSubscription();
+  // If an old subscription exists for another VAPID setup, recreate it.
+  if(sub){try{const oldKey=sub.options?.applicationServerKey;if(oldKey){const a=new Uint8Array(oldKey);if(a.length!==raw.length||a.some((v,i)=>v!==raw[i])){await sub.unsubscribe();sub=null}}}catch(_){}}
+  if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:raw});
+  const payload=sub.toJSON?sub.toJSON():sub;
+  if(!payload?.endpoint||!payload?.keys?.p256dh||!payload?.keys?.auth)throw new Error('Browser created an incomplete push subscription.');
   const {data:{session}}=await db.auth.getSession();if(!session?.access_token)throw new Error('Please sign in again.');
-  const res=await fetch('/api/save-push-subscription',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`},body:JSON.stringify(sub)});
-  const out=await res.json();if(!res.ok)throw new Error(out.error||'Could not save push notifications.');
-  document.getElementById('nexusPushStatus').textContent='✓ Push notifications enabled on this device.';document.getElementById('nncPush').checked=true;await saveNexusNotificationSettings();msg('Push notifications enabled.');
- }catch(e){msg(e.message)}
+  const r=await fetch('/api/save-push-subscription',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${session.access_token}`},body:JSON.stringify(payload)});
+  const text=await r.text();let out={};try{out=text?JSON.parse(text):{}}catch(_){out={error:text||'Server returned an invalid response.'}}
+  if(!r.ok||!out.registered)throw new Error(out.error||'Nexus could not verify this device registration.');
+  if(status)status.textContent='✓ Device Registered — Nexus can send push notifications here.';
+  const push=document.getElementById('nncPush');if(push)push.checked=true;
+  await saveNexusNotificationSettings();
+  msg('Device registered ✓ Try Send Test Notification now.');
+ }catch(e){if(status)status.textContent='Registration failed: '+e.message;msg('Push registration failed: '+e.message)}
+ finally{if(btn){btn.disabled=false;btn.textContent='Re-register This Device'}}
 }
-
 async function loadAdmin(){
  ensureAdminPushControls();
  // Load the three tables separately. This avoids the rental list disappearing
