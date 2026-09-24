@@ -442,13 +442,44 @@ window.requestRental=async(id,name)=>{
    ].filter(Boolean).join('\n');
    const btn=$('#rentalSubmitBtn');btn.disabled=true;btn.textContent='Submitting...';
    const {data:{user}}=await db.auth.getUser();
-   const {error}=await db.from('rental_requests').insert({customer_id:user.id,equipment_id:id,start_date:startDate,end_date:endDate,customer_notes:notes||null});
+   const {data:newRental,error}=await db.from('rental_requests').insert({customer_id:user.id,equipment_id:id,start_date:startDate,end_date:endDate,customer_notes:notes||null}).select('id').single();
    if(error){btn.disabled=false;btn.textContent='Submit Rental Request';return msg(error.message)}
+   // Best-effort admin push. The rental is already safely submitted even if push delivery fails.
+   try{
+    const {data:{session}}=await db.auth.getSession();
+    if(session?.access_token&&newRental?.id)fetch('/api/notify-rental-request',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`},body:JSON.stringify({rental_request_id:newRental.id})}).catch(()=>{});
+   }catch(_){}
    modal.remove();msg('Rental request submitted to Nexus for approval.');loadCustomer();
  };
 };
 
+async function ensureAdminPushControls(){
+ if(document.getElementById('nexusPushAdmin'))return;
+ const host=document.querySelector('.admin-tabs')?.parentElement||document.querySelector('.admin-shell')||document.querySelector('main');
+ if(!host)return;
+ const box=document.createElement('div');box.id='nexusPushAdmin';box.innerHTML=`<button id="enableNexusPush" type="button" style="background:#c71920;color:#fff;border:0;border-radius:8px;padding:11px 16px;font-weight:800;cursor:pointer">🔔 Enable Push Notifications</button><small id="nexusPushStatus" style="display:block;margin-top:6px;opacity:.72">Get notified on this device when a customer requests equipment.</small>`;
+ host.prepend(box);
+ document.getElementById('enableNexusPush').onclick=enableNexusAdminPush;
+ if(Notification.permission==='granted')document.getElementById('nexusPushStatus').textContent='Push permission is enabled on this device.';
+}
+async function enableNexusAdminPush(){
+ try{
+  if(!('serviceWorker'in navigator)||!('PushManager'in window))throw new Error('Push notifications are not supported in this browser.');
+  const permission=await Notification.requestPermission();if(permission!=='granted')throw new Error('Notification permission was not allowed.');
+  const reg=await navigator.serviceWorker.register('/nexus-sw.js');
+  const keyRes=await fetch('/api/push-public-key');const keyOut=await keyRes.json();if(!keyRes.ok)throw new Error(keyOut.error||'Push is not configured yet.');
+  const b64=keyOut.publicKey.replace(/-/g,'+').replace(/_/g,'/');const raw=Uint8Array.from(atob(b64.padEnd(Math.ceil(b64.length/4)*4,'=')),c=>c.charCodeAt(0));
+  let sub=await reg.pushManager.getSubscription();if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:raw});
+  const {data:{session}}=await db.auth.getSession();if(!session?.access_token)throw new Error('Please sign in again.');
+  const res=await fetch('/api/save-push-subscription',{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`},body:JSON.stringify(sub)});
+  const out=await res.json();if(!res.ok)throw new Error(out.error||'Could not save push notifications.');
+  document.getElementById('nexusPushStatus').textContent='✓ Push notifications enabled on this device.';
+  msg('Push notifications enabled.');
+ }catch(e){msg(e.message)}
+}
+
 async function loadAdmin(){
+ ensureAdminPushControls();
  // Load the three tables separately. This avoids the rental list disappearing
  // when Supabase cannot resolve the profiles foreign-key relationship.
  const [pc,rr,eq]=await Promise.all([
