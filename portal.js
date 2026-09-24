@@ -1682,7 +1682,8 @@ function installPaymentsAdminTab(){
  const tabbar=admin.querySelector('.admin-sidebar')||admin.querySelector('.admin-tabs');
  if(!tabbar)return;
  const btn=document.createElement('button');btn.className='admin-tab';btn.dataset.tab='payments';btn.innerHTML=`Payments <span id="paymentsBadge" class="badge"></span>`;
- tabbar.appendChild(btn);
+ const utilityDivider=tabbar.querySelector('.nexus-admin-nav-divider');
+ if(utilityDivider) tabbar.insertBefore(btn,utilityDivider); else tabbar.appendChild(btn);
  const panel=document.createElement('section');panel.id='tab-payments';panel.className='admin-panel';
  panel.innerHTML=`<div class="payments-tab-head"><div><p class="nexus-kicker">NEXUS PAYMENTS</p><h2>Payments</h2><p>See who has paid, who still owes, and every payment request.</p></div><button class="small-btn" onclick="renderPaymentsTab()">Refresh</button></div>
  <div id="paymentsTabStats" class="payment-center-stats"></div>
@@ -1693,6 +1694,21 @@ function installPaymentsAdminTab(){
  panel.querySelectorAll('.pay-filter').forEach(b=>b.onclick=()=>{panel.querySelectorAll('.pay-filter').forEach(x=>x.classList.remove('active'));b.classList.add('active');renderPaymentsTab(b.dataset.payFilter)});
  renderPaymentsTab();
 }
+
+// Keep Payments with the main business tabs and utility tabs below the divider.
+function normalizeNexusAdminNav(){
+ const sidebar=document.querySelector('#adminView .admin-sidebar');
+ if(!sidebar)return;
+ const payments=sidebar.querySelector('.admin-tab[data-tab="payments"]');
+ const divider=sidebar.querySelector('.nexus-admin-nav-divider');
+ if(payments&&divider&&payments.nextElementSibling!==divider) sidebar.insertBefore(payments,divider);
+ // Empty badges should never render as blank red boxes.
+ sidebar.querySelectorAll('.badge').forEach(b=>{if(!String(b.textContent||'').trim()) b.style.display='none';});
+ const paymentBadge=sidebar.querySelector('#paymentsBadge');
+ if(paymentBadge&&String(paymentBadge.textContent||'').trim()) paymentBadge.style.display='inline-flex';
+}
+setTimeout(normalizeNexusAdminNav,650);
+
 window.renderPaymentsTab=async(filter)=>{
  const mount=document.getElementById('paymentsTabTable');if(!mount)return;
  if(!filter)filter=document.querySelector('.pay-filter.active')?.dataset.payFilter||'all';
@@ -1701,7 +1717,7 @@ window.renderPaymentsTab=async(filter)=>{
  const pending=(rows||[]).filter(x=>x.status==='pending'),paid=(rows||[]).filter(x=>x.status==='paid');
  const due=pending.reduce((a,x)=>a+Number(x.amount||0),0),collected=paid.reduce((a,x)=>a+Number(x.amount||0),0);
  const stats=document.getElementById('paymentsTabStats');if(stats)stats.innerHTML=`<div><small>NOT PAID</small><b>${pending.length}</b></div><div><small>PAID</small><b>${paid.length}</b></div><div><small>OUTSTANDING</small><b>${money(due)}</b></div><div><small>COLLECTED</small><b>${money(collected)}</b></div>`;
- const badge=document.getElementById('paymentsBadge');if(badge)badge.textContent=pending.length||'';
+ const badge=document.getElementById('paymentsBadge');if(badge){badge.textContent=pending.length||'';badge.style.display=pending.length?'inline-flex':'none'};normalizeNexusAdminNav();
  const filtered=(rows||[]).filter(x=>filter==='all'||x.status===filter);
  mount.innerHTML=filtered.length?`<div class="payments-table-wrap"><table class="admin-table payments-table"><thead><tr><th>Customer</th><th>Payment For</th><th>Amount</th><th>Due</th><th>Status</th><th>Paid</th><th>Actions</th></tr></thead><tbody>${filtered.map(x=>{const c=adminCustomers.find(c=>c.id===x.customer_id);const label=x.status==='paid'?'✓ PAID':x.status==='cancelled'?'CANCELLED':x.status==='failed'?'FAILED':'NOT PAID';const actions=[`<button class="small-btn" onclick="openCustomerProfile('${x.customer_id}')">View Customer</button>`];if(x.status!=='paid'&&!['cancelled','failed'].includes(x.status))actions.push(`<button class="small-btn payment-cancel-btn" onclick="cancelNexusPayment('${x.id}')">Cancel Payment</button>`);if(x.status!=='paid')actions.push(`<button class="small-btn red payment-remove-btn" onclick="removeNexusPayment('${x.id}')">Remove from Center</button>`);return `<tr><td><b>${esc(c?.full_name||'Customer')}</b><small>${esc(c?.email||'')}</small></td><td>${esc(x.title||'Payment Request')}<small>${esc(x.note||'')}</small></td><td><b>${money(x.amount)}</b></td><td>${esc(x.due_date||'—')}</td><td><span class="pay-table-status ${esc(x.status)}">${label}</span></td><td>${x.paid_at?new Date(x.paid_at).toLocaleString():'—'}</td><td><div class="admin-actions payment-actions">${actions.join('')}</div></td></tr>`}).join('')}</tbody></table></div>`:'<div class="notice">No payments in this category.</div>';
 };
@@ -1825,3 +1841,6 @@ window.removeNexusPayment=async(id,customerId=null)=>{if(!confirm('Remove this u
 .payment-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.payment-cancel-btn{border-color:#8a5a18!important;color:#ffc86b!important}.payment-remove-btn{background:#8e1821!important}.payment-protected{font-size:10px;color:#65df89;font-weight:800;white-space:nowrap}.profile-payment-request-row{display:grid!important;grid-template-columns:minmax(160px,1fr) auto auto minmax(210px,auto)!important;gap:12px!important;align-items:center!important}.profile-payment-request-row .payment-actions{padding:0!important}.admin-sidebar .admin-tab[data-tab=payments]{display:flex;align-items:center;justify-content:space-between;gap:8px}.admin-sidebar .admin-tab[data-tab=payments] .badge{margin-left:auto}
 @media(max-width:760px){.profile-payment-request-row{grid-template-columns:1fr auto!important}.profile-payment-request-row em{justify-self:start}.profile-payment-request-row .payment-actions{grid-column:1/-1;justify-content:stretch}.profile-payment-request-row .payment-actions button{flex:1;min-height:42px}.payments-filters{overflow-x:auto;padding-bottom:5px}.pay-filter{white-space:nowrap}.payments-table{min-width:920px}.payment-row{grid-template-columns:1fr auto!important}.payment-row .payment-actions{grid-column:1/-1;justify-content:stretch}.payment-row .payment-actions button{flex:1}}
 `;document.head.appendChild(st)})();
+
+/* Nexus admin nav cleanup */
+;(function(){const st=document.createElement('style');st.textContent=`.admin-sidebar .badge:empty{display:none!important}.admin-sidebar .admin-tab[data-tab=payments]{order:initial!important}`;document.head.appendChild(st)})();
