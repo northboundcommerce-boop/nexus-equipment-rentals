@@ -1591,7 +1591,7 @@ async function loadAdminPaymentRequests(){
  const unread=(rows||[]).filter(x=>x.status==='paid'&&!x.admin_seen_at);
  mount.innerHTML=`<div class="payment-head"><div><span class="payment-kicker">PAYMENT ACTIVITY</span><h2>Payment Requests ${unread.length?`<span class="payment-badge">${unread.length} NEW</span>`:''}</h2></div>${unread.length?`<button class="small-btn" onclick="markPaymentsSeen()">Mark payments seen</button>`:''}</div>
  ${unread.map(x=>{const c=adminCustomers.find(c=>c.id===x.customer_id);return `<div class="payment-received-alert"><b>✓ PAYMENT RECEIVED — ${money(x.amount)}</b><span>${esc(c?.full_name||c?.email||'Customer')} • ${esc(x.title)} • ${x.paid_at?new Date(x.paid_at).toLocaleString():''}</span></div>`}).join('')}
- ${rows?.length?rows.map(x=>{const c=adminCustomers.find(c=>c.id===x.customer_id);return `<div class="payment-row"><div><b>${esc(c?.full_name||c?.email||'Customer')}</b><small>${esc(x.title)}</small>${x.paid_at?`<small>Paid ${new Date(x.paid_at).toLocaleString()}</small>`:''}</div><div class="payment-amount">${money(x.amount)}</div><span class="status ${x.status==='paid'?'paid-status':''}">${esc(x.status)}</span></div>`}).join(''):'<p class="muted">No payment requests yet.</p>'}`;
+ ${rows?.length?rows.map(x=>{const c=adminCustomers.find(c=>c.id===x.customer_id);const actions=x.status==='paid'?'<span class="payment-protected">Protected history</span>':`${!['cancelled','failed'].includes(x.status)?`<button class="small-btn payment-cancel-btn" onclick="cancelNexusPayment('${x.id}')">Cancel Payment</button>`:''}<button class="small-btn red payment-remove-btn" onclick="removeNexusPayment('${x.id}')">Remove</button>`;return `<div class="payment-row"><div><b>${esc(c?.full_name||c?.email||'Customer')}</b><small>${esc(x.title)}</small>${x.paid_at?`<small>Paid ${new Date(x.paid_at).toLocaleString()}</small>`:''}</div><div class="payment-amount">${money(x.amount)}</div><span class="status ${x.status==='paid'?'paid-status':''}">${esc(x.status)}</span><div class="admin-actions payment-actions">${actions}</div></div>`}).join(''):'<p class="muted">No payment requests yet.</p>'}`;
 }
 window.markPaymentsSeen=async()=>{
  const {error}=await db.from('payment_requests').update({admin_seen_at:new Date().toISOString()}).eq('status','paid').is('admin_seen_at',null);
@@ -1674,12 +1674,12 @@ async function loadCustomerPaymentStatus(customerId){
  const overall=pending.length?'NOT PAID':paid.length?'PAID':'NO PAYMENT REQUEST';
  mount.className=`profile-payment-status ${pending.length?'not-paid':paid.length?'is-paid':'no-payment'}`;
  mount.innerHTML=`<div><span class="payment-kicker">PAYMENT STATUS</span><b>${overall}</b></div><div class="profile-pay-money"><span>Amount Due <b>${money(due)}</b></span><span>Paid <b>${money(collected)}</b></span></div>
- ${rows?.length?`<div class="profile-pay-history">${rows.slice(0,5).map(x=>`<div><span>${esc(x.title)}</span><b>${money(x.amount)}</b><em class="${x.status==='paid'?'paid':'unpaid'}">${x.status==='paid'?'PAID':'NOT PAID'}</em></div>`).join('')}</div>`:''}`;
+ ${rows?.length?`<div class="profile-pay-history">${rows.slice(0,10).map(x=>{const label=x.status==='paid'?'PAID':x.status==='cancelled'?'CANCELLED':x.status==='failed'?'FAILED':'PENDING';const actions=x.status==='paid'?'<span class="payment-protected">Protected</span>':`${!['cancelled','failed'].includes(x.status)?`<button class="small-btn payment-cancel-btn" onclick="cancelNexusPayment('${x.id}','${customerId}')">Cancel Payment</button>`:''}<button class="small-btn red payment-remove-btn" onclick="removeNexusPayment('${x.id}','${customerId}')">Remove</button>`;return `<div class="profile-payment-request-row"><span>${esc(x.title)}</span><b>${money(x.amount)}</b><em class="${x.status==='paid'?'paid':'unpaid'}">${label}</em><div class="admin-actions payment-actions">${actions}</div></div>`}).join('')}</div>`:''}`;
 }
 
 function installPaymentsAdminTab(){
  const admin=document.getElementById('adminView');if(!admin||document.getElementById('tab-payments'))return;
- const tabbar=admin.querySelector('.admin-tabs');
+ const tabbar=admin.querySelector('.admin-sidebar')||admin.querySelector('.admin-tabs');
  if(!tabbar)return;
  const btn=document.createElement('button');btn.className='admin-tab';btn.dataset.tab='payments';btn.innerHTML=`Payments <span id="paymentsBadge" class="badge"></span>`;
  tabbar.appendChild(btn);
@@ -1714,8 +1714,8 @@ async function nexusPaymentAdminAction(action,paymentId){
  if(!res.ok)throw new Error(out.error||`Payment action failed (${res.status}).`);
  return true;
 }
-window.cancelNexusPayment=async id=>{if(!confirm('Cancel this payment request? The customer will no longer be able to pay it.'))return;try{await nexusPaymentAdminAction('cancel',id);msg('Payment request cancelled.');await renderPaymentsTab();await loadAdminPaymentRequests()}catch(e){msg(e.message)}};
-window.removeNexusPayment=async id=>{if(!confirm('Remove this cancelled/failed payment from the Payment Center? This cannot be undone.'))return;try{await nexusPaymentAdminAction('remove',id);msg('Payment removed from Payment Center.');await renderPaymentsTab();await loadAdminPaymentRequests()}catch(e){msg(e.message)}};
+window.cancelNexusPayment=async(id,customerId=null)=>{if(!confirm('Cancel this payment request? The customer will no longer be able to pay it.'))return;try{await nexusPaymentAdminAction('cancel',id);msg('Payment request cancelled.');await Promise.allSettled([renderPaymentsTab(),loadAdminPaymentRequests(),refreshPaymentCenter()]);if(customerId)await loadCustomerPaymentStatus(customerId)}catch(e){msg(e.message)}};
+window.removeNexusPayment=async(id,customerId=null)=>{if(!confirm('Remove this unpaid payment request? This cannot be undone.'))return;try{await nexusPaymentAdminAction('remove',id);msg('Payment removed.');await Promise.allSettled([renderPaymentsTab(),loadAdminPaymentRequests(),refreshPaymentCenter()]);if(customerId)await loadCustomerPaymentStatus(customerId)}catch(e){msg(e.message)}};
 
 
 (function(){
@@ -1819,3 +1819,9 @@ window.removeNexusPayment=async id=>{if(!confirm('Remove this cancelled/failed p
 })();
 
 ;(function(){const st=document.createElement('style');st.textContent=`.payment-actions{display:flex;gap:7px;flex-wrap:wrap}.payment-cancel-btn{border-color:#8d5d18!important;color:#ffbd57!important}.pay-table-status.cancelled{color:#aaa;background:#28282d}.pay-table-status.failed{color:#ff727a;background:#3a1418}@media(max-width:700px){.payments-filters{overflow-x:auto;padding-bottom:4px}.payments-filters .pay-filter{flex:0 0 auto}.payment-actions{min-width:220px}}`;document.head.appendChild(st)})();
+
+(function(){const st=document.createElement('style');st.textContent=`
+/* Nexus Payments v3 */
+.payment-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.payment-cancel-btn{border-color:#8a5a18!important;color:#ffc86b!important}.payment-remove-btn{background:#8e1821!important}.payment-protected{font-size:10px;color:#65df89;font-weight:800;white-space:nowrap}.profile-payment-request-row{display:grid!important;grid-template-columns:minmax(160px,1fr) auto auto minmax(210px,auto)!important;gap:12px!important;align-items:center!important}.profile-payment-request-row .payment-actions{padding:0!important}.admin-sidebar .admin-tab[data-tab=payments]{display:flex;align-items:center;justify-content:space-between;gap:8px}.admin-sidebar .admin-tab[data-tab=payments] .badge{margin-left:auto}
+@media(max-width:760px){.profile-payment-request-row{grid-template-columns:1fr auto!important}.profile-payment-request-row em{justify-self:start}.profile-payment-request-row .payment-actions{grid-column:1/-1;justify-content:stretch}.profile-payment-request-row .payment-actions button{flex:1;min-height:42px}.payments-filters{overflow-x:auto;padding-bottom:5px}.pay-filter{white-space:nowrap}.payments-table{min-width:920px}.payment-row{grid-template-columns:1fr auto!important}.payment-row .payment-actions{grid-column:1/-1;justify-content:stretch}.payment-row .payment-actions button{flex:1}}
+`;document.head.appendChild(st)})();
