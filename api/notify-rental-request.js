@@ -1,0 +1,24 @@
+import crypto from 'crypto';
+
+function env(){return {url:process.env.SUPABASE_URL,key:process.env.SUPABASE_SERVICE_ROLE_KEY}}
+async function userFrom(req){const {url,key}=env();const token=(req.headers.authorization||'').replace(/^Bearer\s+/,'');if(!url||!key||!token)return null;const r=await fetch(`${url}/auth/v1/user`,{headers:{apikey:key,Authorization:`Bearer ${token}`}});return r.ok?await r.json():null}
+async function isAdmin(uid){const {url,key}=env();const r=await fetch(`${url}/rest/v1/admin_users?user_id=eq.${encodeURIComponent(uid)}&select=user_id`,{headers:{apikey:key,Authorization:`Bearer ${key}`}});const a=await r.json();return r.ok&&a?.length>0}
+
+const b64u=b=>Buffer.from(b).toString('base64url');
+function derToJose(sig){const b=Buffer.from(sig);let p=2;if(b[1]&128)p=2+(b[1]&127);let rl=b[p++];let r=b.subarray(p,p+rl);p+=rl;let sl=b[p++];let s=b.subarray(p,p+sl);while(r.length>32&&r[0]===0)r=r.subarray(1);while(s.length>32&&s[0]===0)s=s.subarray(1);return Buffer.concat([Buffer.alloc(32-r.length),r,Buffer.alloc(32-s.length),s])}
+function vapid(endpoint){const pub=process.env.VAPID_PUBLIC_KEY,priv=process.env.VAPID_PRIVATE_KEY,sub=process.env.VAPID_SUBJECT||'mailto:admin@nexusequipmentrentals.com';const aud=new URL(endpoint).origin,now=Math.floor(Date.now()/1000);const h=b64u(JSON.stringify({typ:'JWT',alg:'ES256'})),p=b64u(JSON.stringify({aud,exp:now+43200,sub}));const key=crypto.createPrivateKey({key:Buffer.from(priv,'base64url'),format:'der',type:'pkcs8'});const sig=crypto.sign('sha256',Buffer.from(`${h}.${p}`),key);return {jwt:`${h}.${p}.${b64u(derToJose(sig))}`,pub}}
+function encrypt(subscription,payload){const clientPub=Buffer.from(subscription.p256dh,'base64url'),auth=Buffer.from(subscription.auth,'base64url');const server=crypto.createECDH('prime256v1');server.generateKeys();const shared=server.computeSecret(clientPub);const salt=crypto.randomBytes(16);const hkdf=(salt,ikm,info,len)=>crypto.hkdfSync('sha256',ikm,salt,info,len);const prk=hkdf(auth,shared,Buffer.from('WebPush: info\\0','utf8'),32);const ikm=Buffer.concat([Buffer.from('WebPush: info\\0'),clientPub,server.getPublicKey()]);const secret=hkdf(auth,shared,ikm,32);const cek=hkdf(salt,secret,Buffer.from('Content-Encoding: aes128gcm\\0'),16);const nonce=hkdf(salt,secret,Buffer.from('Content-Encoding: nonce\\0'),12);const plain=Buffer.concat([Buffer.from(payload),Buffer.from([2])]);const cipher=crypto.createCipheriv('aes-128-gcm',cek,nonce);const enc=Buffer.concat([cipher.update(plain),cipher.final(),cipher.getAuthTag()]);const pub=server.getPublicKey();const header=Buffer.alloc(21);salt.copy(header,0);header.writeUInt32BE(4096,16);header[20]=pub.length;return Buffer.concat([header,pub,enc])}
+async function sendPush(s,payload){const {jwt,pub}=vapid(s.endpoint);const body=encrypt(s,payload);return fetch(s.endpoint,{method:'POST',headers:{TTL:'86400',Urgency:'high','Content-Encoding':'aes128gcm',Authorization:`vapid t=${jwt}, k=${pub}`,'Content-Type':'application/octet-stream'},body})}
+export default async function handler(req,res){if(req.method!=='POST')return res.status(405).json({error:'Method not allowed'});try{
+ const u=await userFrom(req);if(!u)return res.status(401).json({error:'Sign in required.'});const id=req.body?.rental_request_id;if(!id)return res.status(400).json({error:'Missing rental request.'});
+ const {url,key}=env();const rr=await fetch(`${url}/rest/v1/rental_requests?id=eq.${encodeURIComponent(id)}&customer_id=eq.${encodeURIComponent(u.id)}&select=id,start_date,end_date,equipment_id`,{headers:{apikey:key,Authorization:`Bearer ${key}`}});const rentals=await rr.json();const rental=rentals?.[0];if(!rr.ok||!rental)return res.status(403).json({error:'Rental request not found.'});
+ const [eqr,pr,sr]=await Promise.all([
+  fetch(`${url}/rest/v1/equipment?id=eq.${encodeURIComponent(rental.equipment_id)}&select=name`,{headers:{apikey:key,Authorization:`Bearer ${key}`}}),
+  fetch(`${url}/rest/v1/profiles?id=eq.${encodeURIComponent(u.id)}&select=full_name,email`,{headers:{apikey:key,Authorization:`Bearer ${key}`}}),
+  fetch(`${url}/rest/v1/push_subscriptions?select=*`,{headers:{apikey:key,Authorization:`Bearer ${key}`}})
+ ]);const eq=(await eqr.json())?.[0],profile=(await pr.json())?.[0],subs=await sr.json();
+ const payload=JSON.stringify({title:'🚨 New Nexus Rental Request',body:`${profile?.full_name||profile?.email||'A customer'} requested ${eq?.name||'equipment'} • ${rental.start_date} to ${rental.end_date}`,url:'/portal.html?admin=rental&id='+id});
+ let sent=0;for(const x of subs||[]){try{const r=await sendPush(x,payload);if(r.ok)sent++;else if(r.status===404||r.status===410)await fetch(`${url}/rest/v1/push_subscriptions?id=eq.${x.id}`,{method:'DELETE',headers:{apikey:key,Authorization:`Bearer ${key}`}})}catch(_){}}
+ res.status(200).json({ok:true,sent});
+ }catch(e){console.error(e);res.status(500).json({error:e.message||'Push failed.'})}}
+}
