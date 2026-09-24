@@ -1,0 +1,17 @@
+#nexusChat{font-family:Inter,Arial,sans-serif;position:fixed;right:22px;bottom:22px;z-index:99999;color:#f7f7f7}
+.nx-chat-launch{height:56px;border:1px solid #5a2024;border-radius:30px;background:#0c0c0d;color:#fff;display:flex;align-items:center;gap:10px;padding:6px 18px 6px 7px;box-shadow:0 15px 45px #0009;cursor:pointer;font-weight:800}
+.nx-chat-launch b,.nx-chat-logo{display:grid;place-items:center;background:#d71920;color:#fff;font-weight:950}.nx-chat-launch b{width:42px;height:42px;border-radius:50%;font-size:21px}
+.nx-chat-pulse{position:absolute;left:39px;top:7px;width:10px;height:10px;background:#42d77d;border:2px solid #0c0c0d;border-radius:50%}
+.nx-chat-panel{display:none;position:absolute;right:0;bottom:68px;width:min(390px,calc(100vw - 28px));height:min(590px,calc(100vh - 115px));background:#0b0b0c;border:1px solid #303033;border-radius:18px;overflow:hidden;box-shadow:0 25px 80px #000c}
+.nx-chat-panel.open{display:flex;flex-direction:column;animation:nxPop .18s ease-out}@keyframes nxPop{from{opacity:0;transform:translateY(12px) scale(.98)}}
+.nx-chat-panel header{padding:15px 16px;display:flex;align-items:center;gap:11px;background:linear-gradient(135deg,#171719,#0c0c0d);border-bottom:1px solid #29292c}
+.nx-chat-logo{width:39px;height:39px;border-radius:9px}.nx-chat-panel header div:nth-child(2){display:flex;flex-direction:column}.nx-chat-panel header strong{font-size:14px;letter-spacing:.08em}.nx-chat-panel header small{color:#999}.nx-chat-panel header small i{display:inline-block;width:7px;height:7px;background:#42d77d;border-radius:50%;margin-right:5px}
+.nx-chat-close{margin-left:auto;background:none;border:0;color:#aaa;font-size:27px;cursor:pointer}
+.nx-chat-body{flex:1;overflow:auto;padding:16px;background:radial-gradient(circle at 90% 0,#30101355,transparent 35%),#0b0b0c}
+.nx-msg{display:flex;flex-direction:column;margin:0 0 12px;max-width:88%}.nx-msg span{padding:11px 13px;border-radius:13px;font-size:13.5px;line-height:1.5}
+.nx-msg.bot span{background:#18181b;border:1px solid #29292d;border-bottom-left-radius:4px}.nx-msg.user{margin-left:auto}.nx-msg.user span{background:#b9141a;border:1px solid #d72a30;border-bottom-right-radius:4px}
+.nx-quick{display:flex;gap:7px;flex-wrap:wrap;margin:4px 0 15px}.nx-quick button{border:1px solid #482023;background:#141416;color:#ddd;border-radius:20px;padding:8px 10px;font-size:11.5px;cursor:pointer}.nx-quick button:hover{border-color:#d71920;color:#fff}
+.nx-chat-links{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.nx-chat-links a{font-size:11.5px;color:#ff555b!important;text-decoration:none!important;border:1px solid #482023;border-radius:14px;padding:5px 8px}
+.nx-chat-form{display:flex;padding:11px;border-top:1px solid #28282b;background:#101012}.nx-chat-form input{flex:1;min-width:0;background:#19191c;border:1px solid #303034;border-radius:11px 0 0 11px;padding:12px;color:#fff;outline:none}.nx-chat-form input:focus{border-color:#8e2227}.nx-chat-form button{width:47px;border:0;border-radius:0 11px 11px 0;background:#d71920;color:#fff;font-size:18px;cursor:pointer}
+.nx-chat-note{text-align:center;color:#666;font-size:9.5px;padding:0 10px 9px;background:#101012}
+@media(max-width:600px){#nexusChat{right:14px;bottom:14px}.nx-chat-launch span:last-child{display:none}.nx-chat-launch{padding-right:7px}.nx-chat-panel{position:fixed;right:10px;left:10px;bottom:80px;width:auto;height:min(610px,calc(100vh - 100px))}}
